@@ -1,0 +1,1 @@
+# This file makes the 'spiralformer' directory a Python package. 

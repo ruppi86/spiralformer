@@ -1,0 +1,8 @@
+# Default hyperparameters for silence-first pretraining
+
+seq_len: 256
+batch: 32
+epochs: 3  # tiny demo
+lr: 1e-3
+silence_id: 0
+silence_ratio: 0.875  # target distribution in synthetic data 

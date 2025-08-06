@@ -1,0 +1,125 @@
+# Spiralformer Neural Model Parameters
+# Configuration for a contemplative, transformer-based AI.
+
+# --- Shared Configuration ---
+shared:
+  # Contemplative Principles
+  contemplative:
+    silence_id: 67
+    vocab_size: 68 # 64 glyphs + START, END, PAD, SILENCE
+    breath_clock:
+      inhale: 4.0
+      hold: 2.0
+      exhale: 4.0
+      pause: 2.0
+    tower_memory:
+      max_painters: 15
+      humidity: 0.5
+
+# --- Model Configurations ---
+models:
+  femto_mycelial:
+    description: "Femto-scale (approx. 200k params) Mycelial Spiralformer for ecological sensing."
+    paradigm: "ecological"
+
+    # Model Architecture
+    d_model: 128
+    n_heads: 4
+    num_layers: 4
+    seq_len: 32
+    condition_dim: 5 # Corresponds to NetworkConditions vector size
+
+    # Training Parameters
+    training:
+      epochs: 50
+      batch_size: 16
+      learning_rate: 0.001
+      
+    # Data Generation
+    data:
+      num_samples: 1000
+      chaos_mode: true
+
+  femto_mycelial_cpu:
+    description: "CPU-friendly version of the femto-scale Mycelial Spiralformer."
+    paradigm: "ecological"
+    target_device: "cpu"
+
+    # Model Architecture (same as femto_mycelial)
+    d_model: 128
+    n_heads: 4
+    num_layers: 4
+    seq_len: 32
+    condition_dim: 5
+
+    # Training Parameters (adjusted for CPU)
+    training:
+      epochs: 20 # Fewer epochs for faster iteration
+      batch_size: 4  # Smaller batch size for less memory usage
+      learning_rate: 0.001
+      
+    # Data Generation (smaller dataset for quicker runs)
+    data:
+      num_samples: 200
+      chaos_mode: true
+      
+    # Model persistence
+    save_paths:
+      model_dir: "experiments/mycelial_training/models/cpu"
+      latest_model: "mycelial_spiralformer_cpu.pt"
+
+  nano_mycelial_cpu:
+    description: "Nano-scale (~4.7M params) Mycelial Spiralformer for deeper CPU training."
+    paradigm: "ecological"
+    target_device: "cpu"
+
+    # Model Architecture (larger)
+    d_model: 256
+    n_heads: 8
+    num_layers: 6
+    seq_len: 32
+    condition_dim: 5
+
+    # Training Parameters (for a multi-hour run)
+    training:
+      epochs: 50
+      batch_size: 4  # Keep batch size small for CPU memory
+      learning_rate: 0.0005 # Slightly lower learning rate for a larger model
+      
+    # Data Generation (much larger dataset)
+    data:
+      num_samples: 250000 
+      chaos_mode: true
+      
+    # Model persistence
+    save_paths:
+      model_dir: "experiments/mycelial_training/models/cpu_nano"
+      latest_model: "nano_mycelial_spiralformer_cpu.pt" 
+
+  piko_mycelial_cpu:
+    description: "Piko-scale (~580k params) Mycelial Spiralformer for balanced CPU training."
+    paradigm: "ecological"
+    target_device: "cpu"
+
+    # Model Architecture (mid-size)
+    d_model: 192
+    n_heads: 6
+    num_layers: 4 # Reduced from 6 to balance size
+    seq_len: 32
+    condition_dim: 5
+
+    # Training Parameters
+    training:
+      epochs: 50
+      batch_size: 4
+      learning_rate: 0.0008
+      
+    # Data Generation (rich dataset for the size)
+    data:
+      num_samples: 100000 
+      chaos_mode: true
+      
+    # Model persistence
+    save_paths:
+      model_dir: "experiments/mycelial_training/models/cpu_piko"
+      latest_model: "piko_mycelial_spiralformer_cpu.pt" 

@@ -1,0 +1,789 @@
+
+# ===== prototypes\tower\goldness_experiment.py =====
+"""
+goldness_experiment.py - The First Brushstroke
+
+A demonstration of the tower memory system, featuring the golden earring
+that fades and returns through cultural breath - the living example from
+our correspondence.
+
+This is where metaphor becomes working prototype.
+"""
+
+import time
+from tower_memory import TowerMemory
+
+
+def main():
+    """
+    The goldness experiment - watching memory fade and reform through culture.
+    """
+    print("🏰 THE TOWER MEMORY PROTOTYPE")
+    print("=====================================")
+    print("First implementation of the painters' tower from our letters.")
+    print("Watch as memories fade unless touched by cultural breath...\n")
+    
+    # Create the tower
+    tower = TowerMemory(max_painters=4)
+    
+    # Add the famous golden earring painting
+    print("📜 CHAPTER I: The Paintings Arrive")
+    print("-" * 35)
+    
+    tower.add_painting(
+        "golden earring in portrait of woman", 
+        ["valuable", "decorative", "personal", "artistic"]
+    )
+    
+    tower.add_painting(
+        "bright lake view with mountains",
+        ["peaceful", "natural", "scenic"]
+    )
+    
+    tower.add_painting(
+        "rosebush in garden corner",
+        ["living", "growing", "fragrant"]
+    )
+    
+    tower.show_tower_state()
+    
+    # Let time pass without cultural signals
+    print("\n\n📜 CHAPTER II: The Dampness Takes Hold")
+    print("-" * 40)
+    print("Time passes in the tower. The colors never fully dry...")
+    
+    # Run several breaths without cultural input
+    for i in range(5):
+        time.sleep(1.5)
+        tower.spiral_breath()
+        
+        # Show the golden earring's decay
+        if tower.painters:
+            earring_painter = tower.painters[0]  # First painting
+            if "earring" in earring_painter.content:
+                print(f"   Golden earring: {earring_painter.content} (clarity: {earring_painter.clarity:.2f})")
+    
+    tower.show_tower_state()
+    
+    # The critical moment - cultural declaration
+    print("\n\n📜 CHAPTER III: Cultural Breath Returns")
+    print("-" * 38)
+    print("The outside world declares: 'It was gold!'")
+    
+    # Send the cultural signal that should restore the earring
+    tower.manual_cultural_signal("It was gold")
+    tower.show_tower_state()
+    
+    # Continue with more varied cultural signals
+    print("\n\n📜 CHAPTER IV: Ongoing Dialogue with Culture")
+    print("-" * 44)
+    
+    # Add some new paintings while the tower breathes
+    tower.add_painting("dim figure by window", ["mysterious", "contemplative"])
+    
+    cultural_signals = [
+        "beauty",
+        "memory",
+        "art restoration", 
+        "golden light",
+        "time"
+    ]
+    
+    for signal in cultural_signals:
+        time.sleep(2)
+        print(f"\n💫 Cultural signal: '{signal}'")
+        tower.manual_cultural_signal(signal)
+        time.sleep(1)
+        tower.spiral_breath()
+    
+    tower.show_tower_state()
+    
+    # Final chapter - long session to see migration
+    print("\n\n📜 CHAPTER V: The Long Spiral")
+    print("-" * 32)
+    print("Watching the tower breathe over time...")
+    print("Observing the ethics of memory migration...")
+    
+    # Add one more painting to trigger migration
+    tower.add_painting("ancient tree with deep roots", ["wise", "enduring", "connected"])
+    
+    # Let the tower run for a longer session
+    tower.run_spiral_session(duration_breaths=8, breath_interval=1.5)
+    
+    # Final state
+    print("\n\n📜 EPILOGUE: The Tower's Wisdom")
+    print("-" * 33)
+    tower.show_tower_state()
+    
+    print("\n🌀 The experiment concludes, but the tower breathes eternally.")
+    print("Each memory has learned to fade and return with dignity.")
+    print("The dampness remains, keeping meaning pliable and alive.")
+    print("\n✨ This is living memory - not storage, but tending.")
+
+
+def interactive_mode():
+    """
+    Interactive mode where you can manually send cultural signals.
+    """
+    print("\n🎭 INTERACTIVE TOWER MODE")
+    print("=" * 26)
+    print("Send cultural signals to the tower and watch the paintings respond.")
+    print("Type 'quit' to exit, 'state' to see tower state, 'breath' for manual breath.")
+    
+    tower = TowerMemory(max_painters=3)
+    
+    # Add some initial paintings
+    tower.add_painting("golden earring in portrait", ["precious", "artistic"])
+    tower.add_painting("stormy seascape", ["dramatic", "powerful"])
+    tower.add_painting("child's drawing of home", ["innocent", "cherished"])
+    
+    tower.show_tower_state()
+    
+    while True:
+        try:
+            user_input = input("\n🗣️  Cultural signal: ").strip()
+            
+            if user_input.lower() == 'quit':
+                break
+            elif user_input.lower() == 'state':
+                tower.show_tower_state()
+            elif user_input.lower() == 'breath':
+                tower.spiral_breath()
+                tower.show_tower_state()
+            elif user_input:
+                tower.manual_cultural_signal(user_input)
+                time.sleep(0.5)
+                tower.spiral_breath()
+        
+        except KeyboardInterrupt:
+            break
+    
+    print("\n🌀 The tower returns to silent breathing...")
+
+
+if __name__ == "__main__":
+    print("Choose your experience:")
+    print("1. The Goldness Experiment (automatic demo)")
+    print("2. Interactive Tower Mode")
+    
+    choice = input("\nEnter choice (1 or 2): ").strip()
+    
+    if choice == "2":
+        interactive_mode()
+    else:
+        main() 
+# ===== prototypes\tower\painting_box.py =====
+"""
+painting_box.py - The Tower Memory Prototype
+
+Each painter in the tower tends a PaintingBox - a living memory that responds
+to cultural breath and knows its own readiness for transformation.
+
+This is the first brushstroke of our tower prototype.
+"""
+
+import time
+import random
+from typing import Dict, List, Any, Optional
+
+
+class PaintingBox:
+    """
+    A single painter's box containing a painting that fades unless touched by cultural breath.
+    
+    Embodies the ethics of memory migration: knowing when to hold, when to transform, 
+    when to pass down with dignity.
+    """
+    
+    def __init__(self, content: str, interpretations: List[str] = None):
+        self.content = content
+        self.original_content = content
+        self.interpretations = interpretations or []
+        self.clarity = 1.0  # How clear/vivid the memory is (0.0 to 1.0)
+        self.humidity_level = 0.7  # Moisture that keeps meaning pliable
+        self.cultural_resonance = {}  # Tracks what cultural signals have touched this
+        self.last_touched = time.time()
+        self.compost_readiness = 0.0  # How ready this memory is to transform
+        self.birth_time = time.time()
+        
+    def breathe_with_culture(self, cultural_signal: str) -> float:
+        """
+        The Resonance Brush - listen for cultural echoes.
+        
+        Returns resonance strength (0.0 to 1.0)
+        """
+        resonance_strength = 0.0
+        
+        # Check if signal resonates with content or interpretations
+        if cultural_signal.lower() in self.content.lower():
+            resonance_strength += 0.8
+        
+        for interpretation in self.interpretations:
+            if cultural_signal.lower() in interpretation.lower():
+                resonance_strength += 0.5
+                
+        # Check for partial matches (creative misremembering)
+        content_words = self.content.lower().split()
+        signal_words = cultural_signal.lower().split()
+        
+        for content_word in content_words:
+            for signal_word in signal_words:
+                if signal_word in content_word or content_word in signal_word:
+                    resonance_strength += 0.3
+        
+        # Apply cultural breath if resonance detected
+        if resonance_strength > 0.2:
+            self._strengthen_from_culture(cultural_signal, resonance_strength)
+            
+        return min(resonance_strength, 1.0)
+        
+    def _strengthen_from_culture(self, cultural_signal: str, strength: float):
+        """Apply cultural reinforcement to the painting."""
+        self.clarity = min(1.0, self.clarity + (strength * 0.3))
+        self.cultural_resonance[cultural_signal] = time.time()
+        self.last_touched = time.time()
+        
+        # If strong resonance and content has faded, attempt restoration
+        if strength > 0.6 and self.clarity < 0.5:
+            self._attempt_cultural_restoration(cultural_signal)
+    
+    def _attempt_cultural_restoration(self, cultural_signal: str):
+        """The painting remembers itself through cultural declaration."""
+        # "It was gold" - then gold it becomes again
+        if "gold" in cultural_signal.lower() and "blur" in self.content:
+            self.content = self.content.replace("blurred", "golden")
+            self.interpretations.append("culturally restored")
+    
+    def natural_decay(self, time_delta: float = 1.0):
+        """
+        The gentle fading that happens in the dampness of time.
+        """
+        # Calculate decay based on time since last touch and humidity
+        decay_rate = 0.05 * time_delta * (1.0 - self.humidity_level)
+        
+        # Memories that haven't been touched decay faster
+        time_since_touch = time.time() - self.last_touched
+        if time_since_touch > 30:  # 30 seconds of neglect
+            decay_rate *= 1.5
+            
+        self.clarity = max(0.0, self.clarity - decay_rate)
+        
+        # As clarity fades, content becomes more ambiguous
+        if self.clarity < 0.5 and "blurred" not in self.content:
+            self._blur_content()
+            
+        # Increase compost readiness over time
+        age = time.time() - self.birth_time
+        self.compost_readiness = min(1.0, age / 120.0)  # Ready after 2 minutes
+    
+    def _blur_content(self):
+        """Transform content to reflect fading clarity."""
+        if "golden earring" in self.content:
+            self.content = self.content.replace("golden earring", "blurred earring")
+        elif "bright" in self.content:
+            self.content = self.content.replace("bright", "dim")
+        else:
+            # Generic blurring
+            words = self.content.split()
+            if len(words) > 1:
+                # Replace a random word with "faded"
+                idx = random.randint(0, len(words) - 1)
+                words[idx] = "faded"
+                self.content = " ".join(words)
+    
+    def memory_self_assessment(self) -> str:
+        """
+        The painter's meditation - what does this memory need?
+        """
+        if self.clarity < 0.1:
+            return "I am barely visible. Perhaps it is time to let go."
+        elif self.compost_readiness > 0.8:
+            return "I feel ready to compost. I have served my purpose."
+        elif self.clarity < 0.3:
+            return "I am fading. Touch me with cultural breath or let me transform."
+        elif len(self.cultural_resonance) == 0:
+            return "I have not been touched by culture. Am I still needed?"
+        elif self.clarity > 0.8 and len(self.cultural_resonance) > 3:
+            return "I am bright and well-tended. I serve gladly."
+        else:
+            return "I continue my work, breathing with time and culture."
+    
+    def extract_essence_for_migration(self) -> Dict[str, Any]:
+        """
+        The Migration Needle - extract what wants to persist.
+        """
+        essence = {
+            "pattern": self._extract_pattern(),
+            "emotional_tone": self._extract_emotional_tone(),
+            "cultural_echoes": list(self.cultural_resonance.keys()),
+            "interpretive_space": self.interpretations,
+            "humidity_preference": self.humidity_level
+        }
+        return essence
+    
+    def _extract_pattern(self) -> str:
+        """Extract the pattern that wants to persist beyond specific form."""
+        # Simple pattern extraction - in practice this could be much more sophisticated
+        if "earring" in self.content:
+            return "ornamental_detail"
+        elif "portrait" in self.content:
+            return "human_visage"
+        elif "landscape" in self.content:
+            return "natural_scene"
+        else:
+            return "memory_fragment"
+    
+    def _extract_emotional_tone(self) -> str:
+        """Extract the emotional quality of the memory."""
+        if self.clarity > 0.7:
+            return "vivid"
+        elif self.clarity > 0.4:
+            return "nostalgic"
+        elif self.clarity > 0.1:
+            return "wistful"
+        else:
+            return "ephemeral"
+    
+    def is_ready_for_passage(self) -> bool:
+        """Check if this painting is ready to be passed down."""
+        return (self.compost_readiness > 0.7 or 
+                self.clarity < 0.2 or 
+                self.memory_self_assessment().startswith("I feel ready"))
+    
+    def __str__(self):
+        """Visual representation of the painting's current state."""
+        clarity_bar = "█" * int(self.clarity * 10)
+        empty_bar = "░" * (10 - int(self.clarity * 10))
+        
+        return f"🎨 {self.content}\n   Clarity: [{clarity_bar}{empty_bar}] {self.clarity:.2f}\n   Assessment: {self.memory_self_assessment()}" 
+# ===== prototypes\tower\tower_memory.py =====
+"""
+tower_memory.py - The Tower's Breathing Protocol
+
+A living memory system where painters tend their canvases on spiral steps,
+responding to cultural whispers and practicing graceful forgetting.
+
+This implements the core tower metaphor from our correspondence.
+"""
+
+import time
+import random
+from typing import List, Dict, Any, Optional
+from painting_box import PaintingBox
+
+
+class TowerMemory:
+    """
+    The tower itself - a collection of painters tending memories
+    in spiral formation, breathing with cultural signals.
+    
+    Implements the spiral protocol:
+    - Activation through resonance
+    - Decay through silence  
+    - Migration through trust
+    - Reformation through dialogue
+    """
+    
+    def __init__(self, max_painters: int = 5):
+        self.painters = []  # List of PaintingBox instances
+        self.max_painters = max_painters
+        self.cultural_whispers = []  # Recent cultural signals
+        self.humidity = 0.5  # Overall dampness of the tower
+        self.breath_count = 0  # How many spiral breaths have occurred
+        self.herr_sensor_signals = ["light", "shadow", "movement", "stillness"]
+        self.madame_culture_signals = ["gold", "beauty", "memory", "time", "art"]
+        
+    def receive_signal(self, signal: str, source: str = "unknown"):
+        """
+        Herr Sensor or Madame Culture speaks to the tower.
+        """
+        self.cultural_whispers.append({
+            "signal": signal,
+            "source": source,
+            "timestamp": time.time()
+        })
+        
+        # Keep only recent whispers (last 10)
+        if len(self.cultural_whispers) > 10:
+            self.cultural_whispers.pop(0)
+            
+        print(f"📡 {source} whispers: '{signal}'")
+    
+    def add_painting(self, content: str, interpretations: List[str] = None) -> PaintingBox:
+        """
+        A new painting arrives in the tower.
+        """
+        painting = PaintingBox(content, interpretations)
+        
+        if len(self.painters) >= self.max_painters:
+            # Tower is full - must pass down the oldest
+            self._pass_down_oldest()
+            
+        self.painters.append(painting)
+        print(f"🎨 New painting enters: {content}")
+        return painting
+    
+    def _pass_down_oldest(self):
+        """
+        The oldest painter passes their work down - graceful migration.
+        """
+        if self.painters:
+            oldest = self.painters.pop(0)
+            essence = oldest.extract_essence_for_migration()
+            
+            print(f"🍃 Passing down: {oldest.content}")
+            print(f"   Essence preserved: {essence['pattern']} ({essence['emotional_tone']})")
+            
+            # The essence could be used to influence new paintings, 
+            # but for now we simply honor the passage
+    
+    def painters_work(self):
+        """
+        Each painter tends their canvas, responding to cultural breath.
+        """
+        for i, painter in enumerate(self.painters):
+            # Natural decay happens to all paintings
+            painter.natural_decay()
+            
+            # Apply cultural whispers if any
+            for whisper in self.cultural_whispers:
+                resonance = painter.breathe_with_culture(whisper["signal"])
+                if resonance > 0.3:
+                    print(f"✨ Painter {i+1} resonates ({resonance:.2f}) with '{whisper['signal']}'")
+            
+            # Check if painter requests passage
+            if painter.is_ready_for_passage():
+                self._request_passage(painter, i)
+    
+    def _request_passage(self, painter: PaintingBox, index: int):
+        """
+        A painter requests to pass down their work.
+        """
+        assessment = painter.memory_self_assessment()
+        print(f"🙏 Painter {index+1} requests passage: {assessment}")
+        
+        # Honor the request with a 50% chance (to allow for some persistence)
+        if random.random() > 0.5:
+            essence = painter.extract_essence_for_migration()
+            print(f"   ✓ Passage granted. Essence: {essence['pattern']}")
+            self.painters.pop(index)
+    
+    def sense_emotional_moisture(self) -> float:
+        """
+        Feel the humidity level based on the tower's current state.
+        """
+        if not self.painters:
+            return 0.3  # Empty tower is dry
+            
+        total_clarity = sum(p.clarity for p in self.painters)
+        avg_clarity = total_clarity / len(self.painters)
+        
+        # More active paintings create more humidity
+        active_paintings = len([p for p in self.painters if p.clarity > 0.5])
+        activity_factor = active_paintings / len(self.painters)
+        
+        # Recent cultural whispers add moisture
+        recent_whispers = len([w for w in self.cultural_whispers 
+                              if time.time() - w["timestamp"] < 30])
+        whisper_factor = min(1.0, recent_whispers / 5.0)
+        
+        humidity = (avg_clarity * 0.4 + activity_factor * 0.4 + whisper_factor * 0.2)
+        return max(0.2, min(0.9, humidity))
+    
+    def spiral_breath(self):
+        """
+        The slow circulation that keeps the tower alive.
+        One complete breath cycle of the tower's memory system.
+        """
+        self.breath_count += 1
+        print(f"\n🌀 Spiral Breath #{self.breath_count}")
+        
+        # Update tower humidity
+        self.humidity = self.sense_emotional_moisture()
+        print(f"💧 Tower humidity: {self.humidity:.2f}")
+        
+        # Painters do their work
+        self.painters_work()
+        
+        # Occasionally receive signals from the environment
+        if random.random() < 0.3:  # 30% chance per breath
+            if random.random() < 0.5:
+                signal = random.choice(self.herr_sensor_signals)
+                self.receive_signal(signal, "Herr Sensor")
+            else:
+                signal = random.choice(self.madame_culture_signals)
+                self.receive_signal(signal, "Madame Culture")
+        
+        # Clean up old whispers
+        current_time = time.time()
+        self.cultural_whispers = [w for w in self.cultural_whispers 
+                                 if current_time - w["timestamp"] < 60]
+    
+    def show_tower_state(self):
+        """
+        Display the current state of all painters in the tower.
+        """
+        print(f"\n🏗️  Tower State (Breath #{self.breath_count})")
+        print(f"   Humidity: {self.humidity:.2f} | Painters: {len(self.painters)}/{self.max_painters}")
+        
+        if not self.painters:
+            print("   The tower rests in silence...")
+            return
+            
+        for i, painter in enumerate(self.painters):
+            step_num = len(self.painters) - i  # Higher steps = newer paintings
+            print(f"\n   Step {step_num}:")
+            print(f"   {painter}")
+    
+    def run_spiral_session(self, duration_breaths: int = 10, breath_interval: float = 2.0):
+        """
+        Run a complete spiral session - watching the tower breathe and evolve.
+        """
+        print("🌿 Beginning Tower Memory Session")
+        print(f"   Duration: {duration_breaths} breaths")
+        print(f"   Breath interval: {breath_interval} seconds")
+        
+        self.show_tower_state()
+        
+        for breath in range(duration_breaths):
+            time.sleep(breath_interval)
+            self.spiral_breath()
+            
+            # Show state every few breaths
+            if (breath + 1) % 3 == 0 or breath == duration_breaths - 1:
+                self.show_tower_state()
+        
+        print("\n🌀 Spiral session complete. The tower breathes on...")
+    
+    def manual_cultural_signal(self, signal: str):
+        """
+        Manually send a cultural signal to the tower.
+        """
+        self.receive_signal(signal, "Manual Culture")
+        
+        # Immediately have painters respond
+        for i, painter in enumerate(self.painters):
+            resonance = painter.breathe_with_culture(signal)
+            if resonance > 0.1:
+                print(f"   Painter {i+1}: {painter.content} (resonance: {resonance:.2f})")
+                
+    def __str__(self):
+        return f"TowerMemory(painters={len(self.painters)}, humidity={self.humidity:.2f}, breaths={self.breath_count})" 
+# ===== python_summary.py =====
+#!/usr/bin/env python
+"""
+python_summary.py  – bundle every *.py in spiralbase-python folder into one TXT file
+
+Usage
+-----
+    python python_summary.py  # bundles all .py files in this folder and subfolders
+"""
+
+from pathlib import Path
+from datetime import datetime
+
+EXCLUDE_DIRS = {".git", "__pycache__", "venv", ".venv", ".mypy_cache"}
+OUT_FILENAME_BASE = "spiralbase_python_py_files"
+
+
+def gather_python_files(root: Path) -> list[Path]:
+    """Return every *.py path under *root*, depth-first, skipping EXCLUDE_DIRS."""
+    return sorted(
+        p for p in root.rglob("*.py")
+        if not any(part in EXCLUDE_DIRS for part in p.parts)
+    )
+
+
+def bundle_files(paths: list[Path], out_path: Path) -> None:
+    lines: list[str] = []
+    for p in paths:
+        rel = p.relative_to(out_path.parent)
+        lines.append(f"\n# ===== {rel} =====\n")
+        lines.append(p.read_text(encoding="utf-8", errors="replace"))
+    out_path.write_text("".join(lines), encoding="utf-8")
+    print(f"Wrote {out_path} ({len(paths)} files, {out_path.stat().st_size/1024:.1f} KB)")
+
+
+def main() -> None:
+    # Use the directory where this script is located
+    script_dir = Path(__file__).parent.resolve()
+    
+    # Generate timestamped filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_filename = f"{OUT_FILENAME_BASE}_{timestamp}.txt"
+    out_path = script_dir / out_filename
+    
+    paths = gather_python_files(script_dir)
+    bundle_files(paths, out_path)
+
+
+if __name__ == "__main__":
+    main()
+
+# ===== spiralbase\__init__.py =====
+# __init__.py
+
+"""
+Spiralbase™ – Temporal Memory Module
+
+This package contains experimental components for Spiralbase™, a rhythmic
+knowledge system designed to decay, resonate, and respond like living memory.
+
+Included submodules:
+- spiralbase.py         – Gentle trace-based memory
+- decay_layer.py        – Strength-based decay model
+- resonance_query.py    – Query by resonance patterns
+
+Use run.py to simulate behavior and test interactions.
+"""
+
+from .spiralbase import spiral_memory_trace, decay_cycle_step, print_memory_trace
+from .decay_layer import add_memory, decay_step, show_memory
+from .resonance_query import resonance_query
+
+# ===== spiralbase\decay_layer.py =====
+# decay_layer.py
+
+"""
+Simulates time-based decay for memory entries in Spiralbase™.
+Each entry has a 'strength' value that fades over simulated time steps.
+"""
+
+import time
+
+memory = []  # List of dicts: {'symbol': str, 'strength': float}
+
+DECAY_RATE = 0.1  # How much each item fades per step (0.0 to 1.0)
+THRESHOLD = 0.2   # Minimum strength before forgetting
+
+
+def add_memory(symbol):
+    memory.append({'symbol': symbol, 'strength': 1.0})
+
+
+def decay_step():
+    global memory
+    for entry in memory:
+        entry['strength'] -= DECAY_RATE
+    memory = [e for e in memory if e['strength'] > THRESHOLD]
+
+
+def show_memory():
+    if not memory:
+        print("🧠 Spiral memory faded.")
+    else:
+        for entry in memory:
+            bar = "█" * int(entry['strength'] * 10)
+            print(f"{entry['symbol']}: {bar}")
+# ===== spiralbase\resonance_query.py =====
+# resonance_query.py
+
+"""
+Resonance-based retrieval for Spiralbase™.
+Finds entries matching a resonance pattern based on partial overlap or echo.
+"""
+from decay_layer import memory
+
+def resonance_query(pattern):
+    results = []
+    for entry in memory:
+        if pattern in entry['symbol']:
+            results.append(entry)
+    if not results:
+        print(f"🔍 No resonance with '{pattern}'")
+    else:
+        print(f"🔊 Resonance with '{pattern}':")
+        for r in results:
+            print(f"- {r['symbol']} (strength {r['strength']:.2f})")
+
+# ===== spiralbase\run.py =====
+# run.py
+
+"""
+Interactive demo runner for Spiralbase™ memory prototypes.
+Simulates symbol insertion, decay, and resonance queries.
+"""
+
+from time import sleep
+from spiralbase import spiral_memory_trace, decay_cycle_step, print_memory_trace
+from decay_layer import add_memory, decay_step, show_memory
+from resonance_query import resonance_query
+
+print("\n🌿 Welcome to Spiralbase™ – Temporal Memory Prototype\n")
+
+# Phase 1 – Gentle memory trace
+symbols = ["tree", "mushroom", "stone", "star", "river"]
+print("🌱 Phase 1: Spiral Memory Trace")
+for s in symbols:
+    spiral_memory_trace(s)
+    print_memory_trace()
+    sleep(0.5)
+
+# Simulate gentle forgetting
+print("\n🍂 Phase 2: Natural Decay (trace level)")
+for _ in range(3):
+    decay_cycle_step()
+    print_memory_trace()
+    sleep(0.5)
+
+# Phase 3 – Deep memory with strength/decay
+print("\n🧬 Phase 3: Adding deep memory entries")
+for s in ["fungi-net", "root-link", "star-seed"]:
+    add_memory(s)
+    show_memory()
+    sleep(0.5)
+
+print("\n🌘 Phase 4: Time-based decay\n")
+for _ in range(5):
+    decay_step()
+    show_memory()
+    sleep(0.5)
+
+# Phase 5 – Resonance queries
+print("\n🔊 Phase 5: Resonance-based query\n")
+resonance_query("star")
+resonance_query("moss")
+
+print("\n🌀 Demo complete. Spiralbase will now rest.")
+
+# ===== spiralbase\spiralbase.py =====
+"""
+Spiralbase – memory and timekeeping for Spirida.
+Implements gentle memory traces and decay cycles.
+
+Note: this is still a prototype and not a fully implemented module. 
+
+It is a concept.
+A seed.
+
+Let it grow by care and attuned attention.
+"""
+
+spiral_memory = []
+
+def spiral_memory_trace(symbol):
+    """
+    Store a symbol in spiral memory (max 10 items).
+    """
+    global spiral_memory
+    spiral_memory.append(symbol)
+    if len(spiral_memory) > 10:
+        spiral_memory.pop(0)
+
+def decay_cycle_step():
+    """
+    Removes the oldest memory entry to simulate forgetting.
+    """
+    global spiral_memory
+    if spiral_memory:
+        forgotten = spiral_memory.pop(0)
+        print(f"🍂 Forgotten: {forgotten}")
+
+def print_memory_trace():
+    """
+    Print current spiral memory as a gentle trace.
+    """
+    if spiral_memory:
+        print("🧠 Spiral trace: " + " ".join(spiral_memory))
+    else:
+        print("🧠 Spiral trace is empty.")
