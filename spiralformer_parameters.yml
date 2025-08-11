@@ -5,13 +5,13 @@
 shared:
   # Contemplative Principles
   contemplative:
+    vocab_size: 68
     silence_id: 67
-    vocab_size: 68 # 64 glyphs + START, END, PAD, SILENCE
     breath_clock:
       inhale: 4.0
       hold: 2.0
       exhale: 4.0
-      pause: 2.0
+      pause: 0.5
     tower_memory:
       max_painters: 15
       humidity: 0.5
@@ -123,3 +123,31 @@ models:
     save_paths:
       model_dir: "experiments/mycelial_training/models/cpu_piko"
       latest_model: "piko_mycelial_spiralformer_cpu.pt" 
+
+  piko_long_train_cpu:
+    description: "Piko-scale (~580k params) Mycelial Spiralformer for a long, deep CPU training session."
+    paradigm: "ecological"
+    target_device: "cpu"
+
+    # Model Architecture (mid-size)
+    d_model: 192
+    n_heads: 6
+    num_layers: 4
+    seq_len: 32
+    condition_dim: 5
+
+    # Training Parameters (for a long, deep run)
+    training:
+      epochs: 20 # Increased for deeper learning
+      batch_size: 4
+      learning_rate: 0.0008
+      
+    # Data Generation (rich dataset for the size)
+    data:
+      num_samples: 100000 
+      chaos_mode: true
+      
+    # Model persistence
+    save_paths:
+      model_dir: "experiments/mycelial_training/models/cpu_piko_long"
+      latest_model: "piko_mycelial_spiralformer_long_cpu.pt" 

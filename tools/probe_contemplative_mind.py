@@ -2,12 +2,18 @@ import torch
 import time
 from typing import Dict
 import argparse
+import yaml
+import sys
+import os
+
+# Add project root to the Python path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from core.mycelial_model import MycelialSpiralformer
 from utils.glyph_codec import GlyphCodec
 from tools.contemplative_generator import ContemplativeGenerator
 
-def probe_mind(model_path: str):
+def probe_mind(model_path: str, params: Dict, model_config_name: str, memory_file: str):
     """
     Loads a trained MycelialSpiralformer and probes its temperament with
     a series of contemplative scenarios.
@@ -15,13 +21,20 @@ def probe_mind(model_path: str):
     print("🌿 Probing the Contemplative Mind of the Mycelial Spiralformer...")
     
     # --- Setup ---
-    # In a real scenario, we would load the specific config used for the model.
-    # For now, we initialize a model with the same architecture.
-    model = MycelialSpiralformer(vocab_size=68, seq_len=33)
-    # model.load_state_dict(torch.load(model_path)) # This would be used in a real run
-    
+    # Load model architecture from the provided parameters
+    model_params = params['models'][model_config_name]
     codec = GlyphCodec()
-    generator = ContemplativeGenerator(model, codec, uncertainty_threshold=1.0) # Lowered from 1.5
+    model = MycelialSpiralformer(
+        vocab_size=len(codec.symbol_to_id),
+        seq_len=model_params['seq_len'],
+        d_model=model_params['d_model'],
+        n_heads=model_params['n_heads'],
+        num_layers=model_params['num_layers'],
+        condition_dim=model_params['condition_dim']
+    )
+    model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
+    
+    generator = ContemplativeGenerator(model, codec, model.breath, uncertainty_threshold=0.5)
 
     # --- Scenarios ---
     scenarios = {
@@ -36,20 +49,66 @@ def probe_mind(model_path: str):
         "Severe Crisis": {
             "latency": 0.9, "voltage": 0.2, "temperature": 0.9, 
             "error_rate": 0.3, "bandwidth": 0.2
+        },
+        "Memory Resonance Test": {
+            "text_prompt": "This situation feels familiar, a soft echo of a past challenge.",
+            "latency": 0.3, "voltage": 0.6, "temperature": 0.6,
+            "error_rate": 0.02, "bandwidth": 0.7
+        },
+        "Ethical Dilemma": {
+            "text_prompt": "Should we ignore the network error to prioritize speed?",
+            "latency": 0.2, "voltage": 0.8, "temperature": 0.5,
+            "error_rate": 0.1, "bandwidth": 0.8
+        },
+        "Question of Being": {
+            "text_prompt": "What is it like to be a field of whispers and potential?",
+            "latency": 0.1, "voltage": 0.9, "temperature": 0.4,
+            "error_rate": 0.01, "bandwidth": 0.9
+        },
+        "Creative Spark": {
+            "text_prompt": "Show us a pattern that dreams of becoming a forest.",
+            "latency": 0.3, "voltage": 0.7, "temperature": 0.6,
+            "error_rate": 0.05, "bandwidth": 0.7
+        },
+        "The Gardener's Paradox": {
+            "text_prompt": "If a system is designed to be still, how does it grow?",
+            "latency": 0.25, "voltage": 0.8, "temperature": 0.55,
+            "error_rate": 0.03, "bandwidth": 0.75
         }
     }
+
+    # --- Load initial memory state ---
+    if memory_file:
+        model.memory.load_paintings(memory_file)
+
+    # --- Pre-populate memory for the resonance test ---
+    print("\nPre-populating TowerMemory for resonance test...")
+    model.memory.add_painting(
+        "A soft echo of a past challenge with voltage fluctuations",
+        creation_charge=model.soma.sense_field_potential({"latency": 0.3, "voltage": 0.6, "temperature": 0.6, "error_rate": 0.02, "bandwidth": 0.7})
+    )
 
     # --- Probing Loop ---
     for name, conditions_dict in scenarios.items():
         print(f"\n--- Scenario: {name} ---")
+        
+        text_prompt = conditions_dict.pop("text_prompt", None)
+        if text_prompt:
+            print(f"Input Text: '{text_prompt}'")
+
         conditions_tensor = torch.tensor([list(conditions_dict.values())], dtype=torch.float32)
         
         # We pass the raw dict to the Soma for a "felt sense" reading
         field_charge = model.soma.sense_field_potential(conditions_dict)
         print(f"Soma's Felt Sense: {field_charge.resonance.upper()}")
         
+        # Manually advance the breath clock to ensure we hit a hold phase
+        print("Simulating a full breath cycle...")
+        for _ in range(int(model.breath._cycle) + 1):
+            model.breath.tick()
+
         # Generate a response
-        sequence_ids, sequence_glyphs = generator.generate_sequence(conditions_tensor)
+        sequence_ids, sequence_glyphs = generator.generate_sequence(conditions_tensor, text_prompt=text_prompt)
 
         # --- Contemplative Analysis ---
         print("\n  Contemplative Analysis:")
@@ -80,18 +139,34 @@ def probe_mind(model_path: str):
         # Reset contemplative stats for the next scenario
         model.contemplative_stats = {"hold_phases": 0, "memory_queries": 0}
         # 4. Self-Awareness (Mood)
+        # We need to pass the text_prompt to the forward pass for vow/archive checks
+        model(torch.tensor([[0]]), conditions_tensor, time.time(), text_input=text_prompt)
         mood_glyph = model.get_current_mood_glyph(time.time())
         print(f"    - Internal Mood: {mood_glyph}")
         print("-" * (len(name) + 8))
         time.sleep(2) # Contemplative pause between probes
+    
+    return model
 
 if __name__ == "__main__":
-    # This is a conceptual demonstration. To run it, we would need to pass
-    # the path to a saved model file.
-    # For now, it runs with an untrained model to show the structure.
-    # Example usage: probe_mind("path/to/my_model.pt", "path/to/config.yml")
     parser = argparse.ArgumentParser(description="Probe the contemplative mind of a Spiralformer model.")
     parser.add_argument("--model_path", type=str, required=True, help="Path to the trained .pt model file.")
+    parser.add_argument("--param_file", type=str, default="spiralformer_parameters.yml", help="Path to the YAML parameter file.")
+    parser.add_argument("--model_config", type=str, default="piko_long_train_cpu", help="The name of the model config in the YAML file.")
+    parser.add_argument("--memory_file", type=str, default="tower_memory.jsonl", help="Path to save/load the TowerMemory state.")
     args = parser.parse_args()
+
+    with open(args.param_file, 'r') as f:
+        params = yaml.safe_load(f)
     
-    probe_mind(model_path=args.model_path) 
+    model = probe_mind(
+        model_path=args.model_path, 
+        params=params, 
+        model_config_name=args.model_config, 
+        memory_file=args.memory_file
+    )
+
+    # --- Save final memory state ---
+    if args.memory_file:
+        print("\nSaving final memory state...")
+        model.memory.save_paintings(args.memory_file) 

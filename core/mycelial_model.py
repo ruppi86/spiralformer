@@ -8,6 +8,7 @@ from core.spiral_attention import build_spiral_attention_mask
 from core.dynamic_mask import build_glyph_conditioned_mask
 from spiralbase import TowerMemory
 from core.soma import Soma, FieldCharge
+from utils.glyph_codec import GlyphCodec
 
 class MycelialSpiralformer(nn.Module):
     """
@@ -16,10 +17,10 @@ class MycelialSpiralformer(nn.Module):
     its internal state and responses to be influenced by the simulated ecosystem.
     """
 
-    def __init__(self, d_model=128, n_heads=4, seq_len=32, num_layers=4, vocab_size=68, condition_dim=5):
+    def __init__(self, d_model=128, n_heads=4, seq_len=32, num_layers=4, vocab_size=68, condition_dim=5, padding_idx=0):
         super().__init__()
         self.seq_len = seq_len
-        self.embed = nn.Embedding(vocab_size, d_model)
+        self.embed = nn.Embedding(vocab_size, d_model, padding_idx=padding_idx)
         self.pos = SinusoidalPositionalEmbedding(d_model, max_len=seq_len)
 
         # The Soma is the sensory organ
@@ -43,7 +44,7 @@ class MycelialSpiralformer(nn.Module):
         # Contemplative statistics for observing wisdom
         self.contemplative_stats = {"hold_phases": 0, "memory_queries": 0}
 
-    def forward(self, tokens: torch.Tensor, conditions: torch.Tensor, t: float):
+    def forward(self, tokens: torch.Tensor, conditions: torch.Tensor, t: float, text_input: Optional[str] = None):
         # 1. The Soma feels the environment first
         field_charge = self.soma.sense_field_potential(self._tensor_to_dict(conditions))
         
@@ -65,8 +66,10 @@ class MycelialSpiralformer(nn.Module):
 
         attn_mask_batch = build_glyph_conditioned_mask(tokens, sliced_base_mask)
         for layer in self.layers:
-            # Pass the initial query to the block for the hold phase
-            x = layer(x, t, attn_mask_batch, self.breath, self.memory, initial_query, self.contemplative_stats)
+            # Pass the field_charge to the block
+            x = layer(x, t, attn_mask_batch, self.breath, self.memory, initial_query, self.contemplative_stats, field_charge)
+        
+        self.last_hidden_state = x.detach() # Store the final hidden state
         return self.out(x)
     
     def _tokens_to_text(self, tokens: torch.Tensor) -> str:
@@ -132,13 +135,14 @@ class _MycelialSpiralBlock(nn.Module):
         # A dedicated layer to blend memory into the context
         self.memory_blender = nn.Linear(d_model, d_model)
 
-    def forward(self, x: torch.Tensor, t: float, attn_mask_batch: torch.Tensor, breath: BreathClock, memory: TowerMemory, query: str, model_stats: Dict[str, int]):
+    def forward(self, x: torch.Tensor, t: float, attn_mask_batch: torch.Tensor, breath: BreathClock, memory: TowerMemory, query: str, model_stats: Dict[str, int], field_charge: FieldCharge):
         phase = breath.phase_at(t)
 
         # During the 'hold' phase, consult the TowerMemory
         if phase.name == "hold":
             model_stats["hold_phases"] += 1
-            resonant_painting = memory.retrieve_by_resonance(query)
+            # Use field_charge to find a resonant memory
+            resonant_painting = memory.retrieve_by_field_charge(field_charge)
             if resonant_painting:
                 model_stats["memory_queries"] += 1
                 print(f"🧠 Memory Resonated: '{resonant_painting.content}'")
@@ -155,7 +159,7 @@ class _MycelialSpiralBlock(nn.Module):
 
         # The mask is now 2D, so we don't need the batch dimension inversion.
         # PyTorch will broadcast the 2D mask across the batch.
-        attn_output, _ = self.attn(x, x, x, attn_mask=~attn_mask_batch, need_weights=False)
+        attn_output, _ = self.attn(x, x, x, attn_mask=~attn_mask_batch.bool(), need_weights=False)
         attn_output = attn_output * weight
         
         x = self.norm1(x + attn_output)

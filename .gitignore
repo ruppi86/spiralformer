@@ -205,3 +205,6 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Mycelial training models
+experiments/mycelial_training/models/cpu_piko_long/piko_mycelial_spiralformer_long_cpu.pt

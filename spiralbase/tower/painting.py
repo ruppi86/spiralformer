@@ -28,6 +28,14 @@ class PaintingBox:
         self.clarity = 1.0  # How clear/vivid the memory is (0.0 to 1.0)
         self.humidity_level = 0.7  # Moisture that keeps meaning pliable
         self.creation_charge = creation_charge
+        # Minimal resonance signature (extendable)
+        if creation_charge is not None:
+            self.signature = {
+                "emotional_pressure": float(creation_charge.emotional_pressure),
+                "temporal_urgency": float(creation_charge.temporal_urgency),
+            }
+        else:
+            self.signature = None
         self.cultural_resonance = {}  # Tracks what cultural signals have touched this
         self.last_touched = time.time()
         self.compost_readiness = 0.0  # How ready this memory is to transform
@@ -182,4 +190,23 @@ class PaintingBox:
         clarity_bar = "█" * int(self.clarity * 10)
         empty_bar = "░" * (10 - int(self.clarity * 10))
         
-        return f"🎨 {self.content}\n   Clarity: [{clarity_bar}{empty_bar}] {self.clarity:.2f}\n   Assessment: {self.memory_self_assessment()}" 
+        return f"🎨 {self.content}\n   Clarity: [{clarity_bar}{empty_bar}] {self.clarity:.2f}\n   Assessment: {self.memory_self_assessment()}"
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serializes the painting to a dictionary."""
+        return {
+            "content": self.content,
+            "original_content": self.original_content,
+            "interpretations": self.interpretations,
+            "clarity": self.clarity,
+            "humidity_level": self.humidity_level,
+            "creation_charge": {
+                "emotional_pressure": self.creation_charge.emotional_pressure,
+                "temporal_urgency": self.creation_charge.temporal_urgency
+            } if self.creation_charge else None,
+            "signature": self.signature,
+            "cultural_resonance": self.cultural_resonance,
+            "last_touched": self.last_touched,
+            "compost_readiness": self.compost_readiness,
+            "birth_time": self.birth_time
+        } 

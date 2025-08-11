@@ -2,124 +2,128 @@ import yaml
 import time
 import torch
 import torch.nn as nn
+import argparse
 from pathlib import Path
+import sys
+import os
+import json
 
-from ...core.model import SpiralFormer
-from ...utils.breath_clock import BreathClock
-from ...utils.rhythmic_loss import RhythmicLossWrapper
-from ...utils.lora import attach_lora
-from ...spiralbase import TowerMemory
+# Add project root to the Python path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
-# --- Configuration ---
-VOCAB_SIZE = 64
-SILENCE_ID = 0
-SEQ_LEN = 256
-BATCH_SIZE = 8
-LEARNING_RATE = 1e-3
-EPOCHS = 100
-STEPS_PER_EPOCH = 20
+from core.mycelial_model import MycelialSpiralformer
+from utils.breath_clock import BreathClock
+from utils.rhythmic_loss import RhythmicLossWrapper
+from spiralbase import TowerMemory
+from utils.glyph_codec import GlyphCodec
 
-def main():
+
+def main(args):
     """
     A unified training script that integrates the core principles of
     the Spiralformer architecture into a single, cohesive training loop.
     """
-    print("🌿 Starting unified training for Spiralformer...")
+    with open(args.param_file, 'r') as f:
+        params = yaml.safe_load(f)
+    
+    config_name = args.model_config
+    config = params['models'][config_name]
+    shared_config = params['shared']
+
+    print(f"🌿 Starting unified training for Spiralformer with config '{config_name}'...")
 
     # --- Initialization ---
-    clock = BreathClock()
-    model = SpiralFormer(vocab_size=VOCAB_SIZE, seq_len=SEQ_LEN)
+    codec = GlyphCodec()
+    breath_params = shared_config['contemplative']['breath_clock']
+    clock = BreathClock(
+        inhale=breath_params['inhale'],
+        hold=breath_params['hold'],
+        exhale=breath_params['exhale'],
+        pause=breath_params['pause']
+    )
     
-    # Attach LoRA adapters
-    lora_map = attach_lora(model, r=8)
+    model = MycelialSpiralformer(
+        d_model=config['d_model'],
+        n_heads=config['n_heads'],
+        seq_len=config['seq_len'],
+        num_layers=config['num_layers'],
+        vocab_size=len(codec.symbol_to_id),
+        condition_dim=config['condition_dim'],
+        padding_idx=0
+    )
     
-    criterion = RhythmicLossWrapper(nn.CrossEntropyLoss(), clock)
-    optimizer = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=LEARNING_RATE)
-    memory = TowerMemory(max_painters=10) # Using TowerMemory now
+    criterion = RhythmicLossWrapper(nn.CrossEntropyLoss(ignore_index=0), clock) # Use ignore_index for padding
+    optimizer = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=config['training']['learning_rate'])
+    memory = TowerMemory(max_painters=shared_config['contemplative']['tower_memory']['max_painters'])
 
-    print(f"Model, optimizer, and TowerMemory initialized. Beginning training for {EPOCHS} epochs.")
+    print(f"Model, optimizer, and TowerMemory initialized. Beginning training for {config['training']['epochs']} epochs.")
+
+    # --- Load Dataset ---
+    with open(args.data_file, 'r') as f:
+        dataset = [json.loads(line) for line in f]
 
     # --- Training Loop ---
-    for epoch in range(EPOCHS):
+    for epoch in range(config['training']['epochs']):
         total_loss = 0
-        total_silence_ratio = 0
-        phase_token_diversity = {phase.name: [] for phase in clock.phases}
         
-        for step in range(STEPS_PER_EPOCH):
+        for i, sample in enumerate(dataset):
             t_now = time.time()
             phase = clock.phase_at(t_now)
+
+            # --- Data Preparation ---
+            conditions = torch.tensor([sample['conditions']], dtype=torch.float32)
+            sequence = [codec.decode_glyph(g) for g in sample['glyph_sequence'] if g in codec.symbol_to_id]
             
-            # 1. Update LoRA rank based on breath phase
-            rank_map = {"inhale": 8, "hold": 4, "exhale": 2, "pause": 0}
-            rank = rank_map[phase.name]
-            for _, lora_layer in lora_map.values():
-                lora_layer.set_rank(rank)
+            # Truncate if sequence is longer than seq_len
+            if len(sequence) > config['seq_len']:
+                sequence = sequence[:config['seq_len']]
 
-            # 2. Generate a batch and update memory
-            tokens = torch.randint(1, VOCAB_SIZE, (BATCH_SIZE, SEQ_LEN))
-            silence_mask = torch.rand(BATCH_SIZE, SEQ_LEN) < 0.2
-            tokens = torch.where(silence_mask, torch.full_like(tokens, SILENCE_ID), tokens)
+            # Pad sequences to match seq_len
+            padded_sequence = sequence + [0] * (config['seq_len'] - len(sequence))
+            tokens = torch.tensor([padded_sequence], dtype=torch.long)
             
-            # Use the memory by adding a "painting" - for now, just the concept
-            # In a full implementation, we'd extract a meaningful essence from tokens
-            memory.add_painting(f"batch_{step}_data")
-            memory.spiral_breath()
-
-
-            # 3. Forward pass and loss calculation
-            # We are predicting the next token in the sequence.
+            # --- Forward pass ---
             input_tokens = tokens[:, :-1]
             target_tokens = tokens[:, 1:]
 
-            logits = model(input_tokens, t_now)
+            logits = model(input_tokens, conditions, t_now, text_input=sample.get('text_input'))
             
-            # The output of the model is (BATCH_SIZE, SEQ_LEN-1, VOCAB_SIZE)
-            # The target is (BATCH_SIZE, SEQ_LEN-1)
-            # CrossEntropyLoss expects (N, C) and (N), so we reshape.
-            loss = criterion(logits.reshape(-1, VOCAB_SIZE), target_tokens.reshape(-1), t=t_now)
+            loss = criterion(logits.reshape(-1, model.embed.num_embeddings), target_tokens.reshape(-1), t=t_now)
 
-            # 4. Backward pass and optimization
-            if clock.weight_for_phase(phase) > 0:
+            # --- Backward pass ---
+            if clock.weight_for_phase(phase) > 0 and torch.isfinite(loss):
                 optimizer.zero_grad()
                 loss.backward()
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
                 optimizer.step()
 
-            total_loss += loss.item()
+            total_loss += loss.item() if torch.isfinite(loss) else 0.0
+            
+            if (i + 1) % 50 == 0:
+                print(f"  Epoch {epoch+1}, Step {i+1}/{len(dataset)}, Loss: {loss.item():.4f}, Phase: {phase.name}")
 
-            # --- Contemplative Metrics ---
-            with torch.no_grad():
-                pred_tokens = logits.argmax(dim=-1)
-                
-                # Metric 1: Silence Ratio
-                silence_ratio = (pred_tokens == SILENCE_ID).float().mean().item()
-                total_silence_ratio += silence_ratio
-
-                # Metric 2: Rhythmic Alignment (Token Diversity per Phase)
-                # We expect higher diversity during 'inhale' and lower during 'exhale'.
-                diversity = len(torch.unique(pred_tokens)) / pred_tokens.numel()
-                phase_token_diversity[phase.name].append(diversity)
-
-        avg_loss = total_loss / STEPS_PER_EPOCH
-        avg_silence_ratio = total_silence_ratio / STEPS_PER_EPOCH
-        avg_diversity = {p: (sum(d)/len(d) if d else 0) for p, d in phase_token_diversity.items()}
-
+        avg_loss = total_loss / len(dataset)
         print(
-            f"Epoch {epoch+1:02d}/{EPOCHS} | "
-            f"Phase: {phase.name:6} | "
-            f"Rank: {rank:1} | "
-            f"Loss: {avg_loss:.4f} | "
-            f"Silence Ratio: {avg_silence_ratio:.2f}"
+            f"Epoch {epoch+1:02d}/{config['training']['epochs']} | "
+            f"Avg Loss: {avg_loss:.4f}"
         )
-        print(
-            f"    └─ Diversity -> "
-            f"Inhale: {avg_diversity['inhale']:.2f}, "
-            f"Hold: {avg_diversity['hold']:.2f}, "
-            f"Exhale: {avg_diversity['exhale']:.2f}, "
-            f"Pause: {avg_diversity['pause']:.2f}"
-        )
-        memory.show_tower_state() # Show memory state at the end of epoch
+        memory.show_tower_state()
 
-    print("🌱 Unified training complete.")
+    # --- Save the final model ---
+    save_path_config = config.get('save_paths', {})
+    if save_path_config:
+        model_dir = Path(save_path_config['model_dir'])
+        model_dir.mkdir(parents=True, exist_ok=True)
+        model_path = model_dir / save_path_config['latest_model']
+        torch.save(model.state_dict(), model_path)
+        print(f"🌱 Model saved to {model_path}")
+    else:
+        print("🌱 Training complete. No save path configured.")
 
 if __name__ == "__main__":
-    main() 
+    parser = argparse.ArgumentParser(description="Unified training script for Mycelial Spiralformer.")
+    parser.add_argument("--param_file", type=str, default="spiralformer_parameters.yml", help="Path to the YAML parameter file.")
+    parser.add_argument("--model_config", type=str, default="piko_long_train_cpu", help="The name of the model config in the YAML file.")
+    parser.add_argument("--data_file", type=str, default="data/mycelial_training_data.jsonl", help="Path to the training data file.")
+    args = parser.parse_args()
+    main(args) 

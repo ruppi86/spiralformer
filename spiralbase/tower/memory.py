@@ -10,8 +10,10 @@ This implements the core tower metaphor from our correspondence.
 import time
 import random
 from typing import List, Dict, Any, Optional
+import json
 from .painting import PaintingBox
 from core.soma import FieldCharge
+import numpy as np
 RESONANCE_THRESHOLD = 0.3
 
 
@@ -52,11 +54,11 @@ class TowerMemory:
             
         print(f"📡 {source} whispers: '{signal}'")
     
-    def add_painting(self, content: str, interpretations: List[str] = None) -> PaintingBox:
+    def add_painting(self, content: str, interpretations: List[str] = None, creation_charge: Optional[FieldCharge] = None) -> PaintingBox:
         """
         A new painting arrives in the tower.
         """
-        painting = PaintingBox(content, interpretations)
+        painting = PaintingBox(content, interpretations, creation_charge=creation_charge)
         
         if len(self.painters) >= self.max_painters:
             # Tower is full - must pass down the oldest
@@ -259,6 +261,65 @@ class TowerMemory:
         if most_resonant:
             most_resonant.last_touched = time.time()
         return most_resonant
-    
+
+    # New: signature-based retrieval with novelty bias
+    def retrieve_by_signature(self, signature: Dict[str, float], novelty_weight: float = 0.05) -> Optional[PaintingBox]:
+        if not self.painters:
+            return None
+        best = None
+        best_score = RESONANCE_THRESHOLD
+        sig_vec = np.array([signature.get("emotional_pressure", 0.0), signature.get("temporal_urgency", 0.0)])
+        for p in self.painters:
+            if p.signature is None:
+                continue
+            p_vec = np.array([p.signature.get("emotional_pressure", 0.0), p.signature.get("temporal_urgency", 0.0)])
+            denom = (np.linalg.norm(sig_vec) * np.linalg.norm(p_vec)) or 1.0
+            cos = float(np.dot(sig_vec, p_vec) / denom)
+            # novelty bias: prefer less-recently touched items slightly
+            age = max(1.0, time.time() - p.last_touched)
+            score = cos + novelty_weight * np.log(age)
+            if score > best_score:
+                best_score = score
+                best = p
+        if best:
+            best.last_touched = time.time()
+        return best
+
+    def save_paintings(self, file_path: str):
+        """Saves all current paintings to a .jsonl file."""
+        with open(file_path, 'w') as f:
+            for painter in self.painters:
+                f.write(json.dumps(painter.to_dict()) + '\n')
+        print(f"🖼️  TowerMemory state saved to {file_path}")
+
+    def load_paintings(self, file_path: str):
+        """Loads paintings from a .jsonl file, replacing current ones."""
+        self.painters = []
+        try:
+            with open(file_path, 'r') as f:
+                for line in f:
+                    data = json.loads(line)
+                    creation_charge = FieldCharge(**data['creation_charge']) if data.get('creation_charge') else None
+                    painting = PaintingBox(
+                        content=data['content'],
+                        interpretations=data['interpretations'],
+                        creation_charge=creation_charge
+                    )
+                    painting.original_content = data['original_content']
+                    painting.clarity = data['clarity']
+                    painting.humidity_level = data['humidity_level']
+                    painting.cultural_resonance = data['cultural_resonance']
+                    painting.last_touched = data['last_touched']
+                    painting.compost_readiness = data['compost_readiness']
+                    painting.birth_time = data['birth_time']
+                    # restore signature if present
+                    painting.signature = data.get('signature')
+                    
+                    if len(self.painters) < self.max_painters:
+                        self.painters.append(painting)
+            print(f"🖼️  TowerMemory state loaded from {file_path}")
+        except FileNotFoundError:
+            print(f"No memory file found at {file_path}. Starting with a clear tower.")
+
     def __str__(self):
         return f"TowerMemory(painters={len(self.painters)}, humidity={self.humidity:.2f}, breaths={self.breath_count})" 

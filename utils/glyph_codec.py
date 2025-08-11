@@ -64,6 +64,9 @@ class GlyphCodec:
         
         glyphs = {}
         
+        # Add a padding glyph with ID 0
+        glyphs[0] = GlyphInfo(0x00, "<PAD>", "Padding token", GlyphCategory.SILENCE, "none", " ")
+
         # Network Topology (0x01-0x10)
         network_glyphs = [
             GlyphInfo(0x01, "🌱07", "fresh bandwidth gained", GlyphCategory.NETWORK, "increase_flow_rate", "🌱"),

@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Optional
 
 @dataclass
 class BreathPhase:
@@ -16,8 +17,22 @@ class BreathClock:
             BreathPhase("pause", pause),
         ]
         self._cycle = sum(p.duration for p in self.phases)
+        self._time = 0.0
 
-    def phase_at(self, t: float) -> BreathPhase:
+    def tick(self, dt: float = 1.0, *, uncertainty: Optional[float] = None, ethical_risk: Optional[bool] = None):
+        """Advances the clock; optionally adapt hold/pause when uncertain or at ethical risk."""
+        # Simple adaptive policy: if very uncertain or ethical risk, slow down (extend hold slightly)
+        if uncertainty is not None and uncertainty > 0.85:
+            dt *= 0.5
+        if ethical_risk:
+            dt *= 0.5
+        self._time += dt
+
+    def phase_at(self, t: Optional[float] = None) -> BreathPhase:
+        """Gets the phase at a specific time t, or the current internal time if t is None."""
+        if t is None:
+            t = self._time
+        
         t_mod = t % self._cycle
         acc = 0.0
         for p in self.phases:
