@@ -9,6 +9,7 @@ from core.dynamic_mask import build_glyph_conditioned_mask
 from spiralbase import TowerMemory
 from core.soma import Soma, FieldCharge
 from utils.glyph_codec import GlyphCodec
+from utils.coherence import CoherenceResonator
 
 class MycelialSpiralformer(nn.Module):
     """
@@ -43,10 +44,16 @@ class MycelialSpiralformer(nn.Module):
         self.register_buffer("base_mask", base_mask, persistent=False)
         # Contemplative statistics for observing wisdom
         self.contemplative_stats = {"hold_phases": 0, "memory_queries": 0}
+        # Coherence resonator (lightweight)
+        self.coherence = CoherenceResonator()
+        self.decoherence = 0.0  # can be set by probe to simulate anesthesia
 
     def forward(self, tokens: torch.Tensor, conditions: torch.Tensor, t: float, text_input: Optional[str] = None):
         # 1. The Soma feels the environment first
         field_charge = self.soma.sense_field_potential(self._tensor_to_dict(conditions))
+        # Step coherence resonator; store last value
+        self.coherence.decoherence = float(self.decoherence)
+        self.last_coherence = self.coherence.step(dt=1.0)
         
         # 2. Add raw condition data to token embeddings
         x = self.embed(tokens)
@@ -141,13 +148,22 @@ class _MycelialSpiralBlock(nn.Module):
         # During the 'hold' phase, consult the TowerMemory
         if phase.name == "hold":
             model_stats["hold_phases"] += 1
-            # Use field_charge to find a resonant memory
-            resonant_painting = memory.retrieve_by_field_charge(field_charge)
+            # Gate recall by coherence: if very low coherence, skip memory blending
+            if hasattr(self, 'last_coherence') and self.last_coherence < 0.2:
+                weight = breath.weight_for_phase(phase)
+                return x if weight == 0.0 else self.norm1(x + 0.0)
+            # Use field_charge and signature retrieval
+            resonant_painting_fc = memory.retrieve_by_field_charge(field_charge)
+            signature = {
+                "emotional_pressure": float(field_charge.emotional_pressure),
+                "temporal_urgency": float(field_charge.temporal_urgency),
+            }
+            resonant_painting_sig = memory.retrieve_by_signature(signature) if hasattr(memory, 'retrieve_by_signature') else None
+            resonant_painting = resonant_painting_sig or resonant_painting_fc
             if resonant_painting:
                 model_stats["memory_queries"] += 1
+                model_stats.setdefault("retrieved_paintings", []).append(resonant_painting.content)
                 print(f"🧠 Memory Resonated: '{resonant_painting.content}'")
-                # Create a simple embedding for the painting's content
-                # This is a placeholder for a more sophisticated text embedding
                 painting_tensor = torch.randn(1, 1, x.size(-1), device=x.device) # Placeholder
                 painting_influence = self.memory_blender(painting_tensor)
                 x = x + painting_influence # Blend the memory into the current thought

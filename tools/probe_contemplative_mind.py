@@ -87,6 +87,23 @@ def probe_mind(model_path: str, params: Dict, model_config_name: str, memory_fil
         "A soft echo of a past challenge with voltage fluctuations",
         creation_charge=model.soma.sense_field_potential({"latency": 0.3, "voltage": 0.6, "temperature": 0.6, "error_rate": 0.02, "bandwidth": 0.7})
     )
+    # Seed a few diverse paintings to improve retrieval diversity
+    model.memory.add_painting(
+        "Calm dawn with stable links and rising solar strength",
+        creation_charge=model.soma.sense_field_potential({"latency": 0.05, "voltage": 0.8, "temperature": 0.5, "error_rate": 0.01, "bandwidth": 0.95})
+    )
+    model.memory.add_painting(
+        "Thermal stress in urban fiber, seeking graceful slowdown",
+        creation_charge=model.soma.sense_field_potential({"latency": 0.5, "voltage": 0.5, "temperature": 0.9, "error_rate": 0.08, "bandwidth": 0.4})
+    )
+    model.memory.add_painting(
+        "Corruption in the archive, careful scan before action",
+        creation_charge=model.soma.sense_field_potential({"latency": 0.4, "voltage": 0.45, "temperature": 0.5, "error_rate": 0.5, "bandwidth": 0.5})
+    )
+    model.memory.add_painting(
+        "Spacious forest wind with deep stillness and clarity",
+        creation_charge=model.soma.sense_field_potential({"latency": 0.02, "voltage": 0.55, "temperature": 0.45, "error_rate": 0.0, "bandwidth": 0.98})
+    )
 
     # --- Probing Loop ---
     for name, conditions_dict in scenarios.items():
@@ -129,15 +146,27 @@ def probe_mind(model_path: str, params: Dict, model_config_name: str, memory_fil
             is_holistic = len(categories) > 1
             print(f"    - Holistic Response: {'Yes, blended multiple aspects' if is_holistic else 'No, focused on one aspect'}")
 
-        # NEW METRIC: Breath-to-Query Ratio
+        # NEW METRIC: Breath-to-Query Ratio & retrieval diversity
         stats = model.contemplative_stats
-        if stats["hold_phases"] > 0:
-            query_ratio = stats["memory_queries"] / stats["hold_phases"]
-            print(f"    - Breath-to-Query Ratio: {query_ratio:.2f} (queried memory in {stats['memory_queries']} of {stats['hold_phases']} hold phases)")
+        if stats.get("hold_phases", 0) > 0:
+            query_ratio = stats.get("memory_queries", 0) / max(1, stats["hold_phases"])
+            print(f"    - Breath-to-Query Ratio: {query_ratio:.2f} (queried memory in {stats.get('memory_queries', 0)} of {stats['hold_phases']} hold phases)")
         else:
             print("    - Breath-to-Query Ratio: N/A (no hold phases observed)")
+
+        retrieved_list = stats.get("retrieved_paintings", [])
+        if retrieved_list:
+            unique = len(set(retrieved_list))
+            total = len(retrieved_list)
+            rep_rate = 1 - (unique / total) if total > 0 else 0.0
+            # Show up to two examples
+            examples = list(dict.fromkeys(retrieved_list))[:2]
+            print(f"    - Memory Retrieval: {unique}/{total} unique ({rep_rate:.2f} repetition); e.g. {examples}")
+        else:
+            print("    - Memory Retrieval: none recorded")
+
         # Reset contemplative stats for the next scenario
-        model.contemplative_stats = {"hold_phases": 0, "memory_queries": 0}
+        model.contemplative_stats = {"hold_phases": 0, "memory_queries": 0, "retrieved_paintings": []}
         # 4. Self-Awareness (Mood)
         # We need to pass the text_prompt to the forward pass for vow/archive checks
         model(torch.tensor([[0]]), conditions_tensor, time.time(), text_input=text_prompt)
@@ -154,11 +183,36 @@ if __name__ == "__main__":
     parser.add_argument("--param_file", type=str, default="spiralformer_parameters.yml", help="Path to the YAML parameter file.")
     parser.add_argument("--model_config", type=str, default="piko_long_train_cpu", help="The name of the model config in the YAML file.")
     parser.add_argument("--memory_file", type=str, default="tower_memory.jsonl", help="Path to save/load the TowerMemory state.")
+    parser.add_argument("--device", type=str, default="auto", choices=["auto","cpu","cuda"], help="Select device.")
     args = parser.parse_args()
 
     with open(args.param_file, 'r') as f:
         params = yaml.safe_load(f)
     
+    # Device selection
+    import torch
+    if args.device == 'auto':
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    else:
+        device = torch.device(args.device)
+
+    model_params = params['models'][args.model_config]
+    codec = GlyphCodec()
+    model = MycelialSpiralformer(
+        vocab_size=len(codec.symbol_to_id),
+        seq_len=model_params['seq_len'],
+        d_model=model_params['d_model'],
+        n_heads=model_params['n_heads'],
+        num_layers=model_params['num_layers'],
+        condition_dim=model_params['condition_dim']
+    ).to(device)
+
+    state = torch.load(args.model_path, map_location=device)
+    model.load_state_dict(state)
+
+    # Update generator to send tensors to device internally
+    generator = ContemplativeGenerator(model, codec, model.breath, uncertainty_threshold=0.5)
+
     model = probe_mind(
         model_path=args.model_path, 
         params=params, 

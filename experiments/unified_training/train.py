@@ -30,7 +30,15 @@ def main(args):
     config = params['models'][config_name]
     shared_config = params['shared']
 
-    print(f"🌿 Starting unified training for Spiralformer with config '{config_name}'...")
+    # Device selection
+    if args.device == 'auto':
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    else:
+        device = torch.device(args.device)
+    if device.type == 'cuda':
+        torch.backends.cudnn.benchmark = True
+
+    print(f"🌿 Starting unified training for Spiralformer with config '{config_name}' on {device}...")
 
     # --- Initialization ---
     codec = GlyphCodec()
@@ -50,10 +58,11 @@ def main(args):
         vocab_size=len(codec.symbol_to_id),
         condition_dim=config['condition_dim'],
         padding_idx=0
-    )
+    ).to(device)
     
     criterion = RhythmicLossWrapper(nn.CrossEntropyLoss(ignore_index=0), clock) # Use ignore_index for padding
     optimizer = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=config['training']['learning_rate'])
+    scaler = torch.amp.GradScaler('cuda', enabled=(device.type == 'cuda'))
     memory = TowerMemory(max_painters=shared_config['contemplative']['tower_memory']['max_painters'])
 
     print(f"Model, optimizer, and TowerMemory initialized. Beginning training for {config['training']['epochs']} epochs.")
@@ -64,14 +73,14 @@ def main(args):
 
     # --- Training Loop ---
     for epoch in range(config['training']['epochs']):
-        total_loss = 0
+        total_loss = 0.0
         
         for i, sample in enumerate(dataset):
             t_now = time.time()
             phase = clock.phase_at(t_now)
 
             # --- Data Preparation ---
-            conditions = torch.tensor([sample['conditions']], dtype=torch.float32)
+            conditions = torch.tensor([sample['conditions']], dtype=torch.float32, device=device)
             sequence = [codec.decode_glyph(g) for g in sample['glyph_sequence'] if g in codec.symbol_to_id]
             
             # Truncate if sequence is longer than seq_len
@@ -80,29 +89,32 @@ def main(args):
 
             # Pad sequences to match seq_len
             padded_sequence = sequence + [0] * (config['seq_len'] - len(sequence))
-            tokens = torch.tensor([padded_sequence], dtype=torch.long)
+            tokens = torch.tensor([padded_sequence], dtype=torch.long, device=device)
             
             # --- Forward pass ---
             input_tokens = tokens[:, :-1]
             target_tokens = tokens[:, 1:]
 
-            logits = model(input_tokens, conditions, t_now, text_input=sample.get('text_input'))
-            
-            loss = criterion(logits.reshape(-1, model.embed.num_embeddings), target_tokens.reshape(-1), t=t_now)
+            with torch.amp.autocast(device_type='cuda', enabled=(device.type == 'cuda')):
+                logits = model(input_tokens, conditions, t_now, text_input=sample.get('text_input'))
+                loss = criterion(logits.reshape(-1, model.embed.num_embeddings), target_tokens.reshape(-1), t=t_now)
 
             # --- Backward pass ---
             if clock.weight_for_phase(phase) > 0 and torch.isfinite(loss):
-                optimizer.zero_grad()
-                loss.backward()
+                optimizer.zero_grad(set_to_none=True)
+                scaler.scale(loss).backward()
+                # Unscale before clipping when using scaler
+                scaler.unscale_(optimizer)
                 torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-                optimizer.step()
+                scaler.step(optimizer)
+                scaler.update()
 
-            total_loss += loss.item() if torch.isfinite(loss) else 0.0
+            total_loss += (loss.item() if torch.isfinite(loss) else 0.0)
             
-            if (i + 1) % 50 == 0:
-                print(f"  Epoch {epoch+1}, Step {i+1}/{len(dataset)}, Loss: {loss.item():.4f}, Phase: {phase.name}")
+            if (i + 1) % 1000 == 0:
+                print(f"  Epoch {epoch+1}, Step {i+1}/{len(dataset)}, Loss: {loss.item() if torch.isfinite(loss) else float('nan'):.4f}, Phase: {phase.name}")
 
-        avg_loss = total_loss / len(dataset)
+        avg_loss = total_loss / max(1, len(dataset))
         print(
             f"Epoch {epoch+1:02d}/{config['training']['epochs']} | "
             f"Avg Loss: {avg_loss:.4f}"
@@ -125,5 +137,6 @@ if __name__ == "__main__":
     parser.add_argument("--param_file", type=str, default="spiralformer_parameters.yml", help="Path to the YAML parameter file.")
     parser.add_argument("--model_config", type=str, default="piko_long_train_cpu", help="The name of the model config in the YAML file.")
     parser.add_argument("--data_file", type=str, default="data/mycelial_training_data.jsonl", help="Path to the training data file.")
+    parser.add_argument("--device", type=str, default="auto", choices=["auto","cpu","cuda"], help="Select device.")
     args = parser.parse_args()
     main(args) 
