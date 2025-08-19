@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from typing import Optional, List, Dict
+import random
 
 from utils.breath_clock import BreathClock
 from utils.positional import SinusoidalPositionalEmbedding
@@ -29,6 +30,9 @@ class MycelialSpiralformer(nn.Module):
         
         # The TowerMemory is the long-term, living memory
         self.memory = TowerMemory(max_painters=15)
+        # Enable anti-repetition hygiene in memory
+        if hasattr(self.memory, 'set_anti_repetition'):
+            self.memory.set_anti_repetition(enabled=True, recent_max=12, cooldown_sec=1.0)
 
         # Projection for the condition vector to match d_model
         self.condition_proj = nn.Linear(condition_dim, d_model)
@@ -47,6 +51,9 @@ class MycelialSpiralformer(nn.Module):
         # Coherence resonator (lightweight)
         self.coherence = CoherenceResonator()
         self.decoherence = 0.0  # can be set by probe to simulate anesthesia
+        # Query policy
+        self.coherence_gate_threshold: float = 0.25
+        self.memory_query_probability: float = 0.35
 
     def forward(self, tokens: torch.Tensor, conditions: torch.Tensor, t: float, text_input: Optional[str] = None):
         # 1. The Soma feels the environment first
@@ -73,8 +80,19 @@ class MycelialSpiralformer(nn.Module):
 
         attn_mask_batch = build_glyph_conditioned_mask(tokens, sliced_base_mask)
         for layer in self.layers:
-            # Pass the field_charge to the block
-            x = layer(x, t, attn_mask_batch, self.breath, self.memory, initial_query, self.contemplative_stats, field_charge)
+            # Pass the field_charge and query controls to the block
+            x = layer(
+                x,
+                t,
+                attn_mask_batch,
+                self.breath,
+                self.memory,
+                initial_query,
+                self.contemplative_stats,
+                field_charge,
+                self.last_coherence,
+                self.memory_query_probability,
+            )
         
         self.last_hidden_state = x.detach() # Store the final hidden state
         return self.out(x)
@@ -142,14 +160,14 @@ class _MycelialSpiralBlock(nn.Module):
         # A dedicated layer to blend memory into the context
         self.memory_blender = nn.Linear(d_model, d_model)
 
-    def forward(self, x: torch.Tensor, t: float, attn_mask_batch: torch.Tensor, breath: BreathClock, memory: TowerMemory, query: str, model_stats: Dict[str, int], field_charge: FieldCharge):
+    def forward(self, x: torch.Tensor, t: float, attn_mask_batch: torch.Tensor, breath: BreathClock, memory: TowerMemory, query: str, model_stats: Dict[str, int], field_charge: FieldCharge, last_coherence: float, query_prob: float):
         phase = breath.phase_at(t)
 
         # During the 'hold' phase, consult the TowerMemory
         if phase.name == "hold":
             model_stats["hold_phases"] += 1
-            # Gate recall by coherence: if very low coherence, skip memory blending
-            if hasattr(self, 'last_coherence') and self.last_coherence < 0.2:
+            # Gate recall by coherence and probability
+            if last_coherence < 0.25 or random.random() >= max(0.0, min(1.0, query_prob)):
                 weight = breath.weight_for_phase(phase)
                 return x if weight == 0.0 else self.norm1(x + 0.0)
             # Use field_charge and signature retrieval

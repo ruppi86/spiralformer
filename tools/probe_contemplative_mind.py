@@ -13,7 +13,25 @@ from core.mycelial_model import MycelialSpiralformer
 from utils.glyph_codec import GlyphCodec
 from tools.contemplative_generator import ContemplativeGenerator
 
-def probe_mind(model_path: str, params: Dict, model_config_name: str, memory_file: str):
+
+def _ckpt_vocab_size(state) -> int:
+    """
+    Infer vocabulary size from a checkpoint state_dict by inspecting common tensors.
+    Falls back to 0 if not inferrable.
+    """
+    try:
+        if isinstance(state, dict):
+            if 'embed.weight' in state and hasattr(state['embed.weight'], 'shape'):
+                return int(state['embed.weight'].shape[0])
+            if 'out.weight' in state and hasattr(state['out.weight'], 'shape'):
+                return int(state['out.weight'].shape[0])
+            if 'out.bias' in state and hasattr(state['out.bias'], 'shape'):
+                return int(state['out.bias'].shape[0])
+    except Exception:
+        pass
+    return 0
+
+def probe_mind(model_path: str, params: Dict, model_config_name: str, memory_file: str, uncertainty_threshold: float = 0.5, temperature: float = 1.0, max_silence_run: int = 2):
     """
     Loads a trained MycelialSpiralformer and probes its temperament with
     a series of contemplative scenarios.
@@ -24,17 +42,29 @@ def probe_mind(model_path: str, params: Dict, model_config_name: str, memory_fil
     # Load model architecture from the provided parameters
     model_params = params['models'][model_config_name]
     codec = GlyphCodec()
+    shared = params.get('shared', {}).get('contemplative', {})
+    # Peek state on CPU to infer checkpoint vocab size
+    state_cpu = torch.load(model_path, map_location='cpu', weights_only=True)
+    ckpt_vs = _ckpt_vocab_size(state_cpu)
+    vocab_size = ckpt_vs if ckpt_vs > 0 else shared.get('vocab_size', len(codec.symbol_to_id))
     model = MycelialSpiralformer(
-        vocab_size=len(codec.symbol_to_id),
+        vocab_size=vocab_size,
         seq_len=model_params['seq_len'],
         d_model=model_params['d_model'],
         n_heads=model_params['n_heads'],
         num_layers=model_params['num_layers'],
         condition_dim=model_params['condition_dim']
     )
-    model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
+    model.load_state_dict(state_cpu, strict=False)
     
-    generator = ContemplativeGenerator(model, codec, model.breath, uncertainty_threshold=0.5)
+    generator = ContemplativeGenerator(
+        model,
+        codec,
+        model.breath,
+        uncertainty_threshold=uncertainty_threshold,
+        temperature=temperature,
+        max_silence_run=max_silence_run,
+    )
 
     # --- Scenarios ---
     scenarios = {
@@ -184,6 +214,11 @@ if __name__ == "__main__":
     parser.add_argument("--model_config", type=str, default="piko_long_train_cpu", help="The name of the model config in the YAML file.")
     parser.add_argument("--memory_file", type=str, default="tower_memory.jsonl", help="Path to save/load the TowerMemory state.")
     parser.add_argument("--device", type=str, default="auto", choices=["auto","cpu","cuda"], help="Select device.")
+    parser.add_argument("--uncertainty_threshold", type=float, default=0.5, help="Entropy threshold above which the generator chooses silence.")
+    parser.add_argument("--temperature", type=float, default=1.0, help="Sampling temperature applied to logits.")
+    parser.add_argument("--max_silence_run", type=int, default=2, help="Stop generation after this many consecutive silence tokens.")
+    parser.add_argument("--silence_penalty", type=float, default=0.0, help="Logit penalty subtracted from contemplative glyphs to encourage speech.")
+    parser.add_argument("--min_active_tokens_urgent", type=int, default=2, help="Minimum number of non-silence tokens to emit in urgent resonance.")
     args = parser.parse_args()
 
     with open(args.param_file, 'r') as f:
@@ -198,8 +233,13 @@ if __name__ == "__main__":
 
     model_params = params['models'][args.model_config]
     codec = GlyphCodec()
+    shared = params.get('shared', {}).get('contemplative', {})
+    # Peek state on CPU for shapes and then send model to device
+    state_cpu = torch.load(args.model_path, map_location='cpu', weights_only=True)
+    ckpt_vs = _ckpt_vocab_size(state_cpu)
+    vocab_size = ckpt_vs if ckpt_vs > 0 else shared.get('vocab_size', len(codec.symbol_to_id))
     model = MycelialSpiralformer(
-        vocab_size=len(codec.symbol_to_id),
+        vocab_size=vocab_size,
         seq_len=model_params['seq_len'],
         d_model=model_params['d_model'],
         n_heads=model_params['n_heads'],
@@ -207,17 +247,28 @@ if __name__ == "__main__":
         condition_dim=model_params['condition_dim']
     ).to(device)
 
-    state = torch.load(args.model_path, map_location=device)
-    model.load_state_dict(state)
+    model.load_state_dict(state_cpu, strict=False)
 
     # Update generator to send tensors to device internally
-    generator = ContemplativeGenerator(model, codec, model.breath, uncertainty_threshold=0.5)
+    generator = ContemplativeGenerator(
+        model,
+        codec,
+        model.breath,
+        uncertainty_threshold=args.uncertainty_threshold,
+        temperature=args.temperature,
+        max_silence_run=args.max_silence_run,
+        silence_penalty=args.silence_penalty,
+        min_active_tokens_urgent=args.min_active_tokens_urgent,
+    )
 
     model = probe_mind(
         model_path=args.model_path, 
         params=params, 
         model_config_name=args.model_config, 
-        memory_file=args.memory_file
+        memory_file=args.memory_file,
+        uncertainty_threshold=args.uncertainty_threshold,
+        temperature=args.temperature,
+        max_silence_run=args.max_silence_run,
     )
 
     # --- Save final memory state ---

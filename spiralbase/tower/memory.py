@@ -37,6 +37,11 @@ class TowerMemory:
         self.breath_count = 0  # How many spiral breaths have occurred
         self.herr_sensor_signals = ["light", "shadow", "movement", "stillness"]
         self.madame_culture_signals = ["gold", "beauty", "memory", "time", "art"]
+        # Anti-repetition memory hygiene
+        self._recent_retrieved_contents: List[str] = []
+        self._recent_max: int = 8
+        self._cooldown_sec: float = 1.5
+        self._anti_repetition_enabled: bool = True
         
     def receive_signal(self, signal: str, source: str = "unknown"):
         """
@@ -226,6 +231,12 @@ class TowerMemory:
         query_words = set(query_text.lower().split())
 
         for painter in self.painters:
+            # Anti-repetition and cooldown hygiene
+            if self._anti_repetition_enabled:
+                if painter.content in self._recent_retrieved_contents:
+                    continue
+                if time.time() - painter.last_touched < self._cooldown_sec:
+                    continue
             content_words = set(painter.content.lower().split())
             # Simple resonance score based on word overlap
             resonance_score = len(query_words.intersection(content_words))
@@ -240,6 +251,7 @@ class TowerMemory:
         if best_match:
             # Accessing the memory touches it, making it more vivid for a time
             best_match.last_touched = time.time()
+            self._register_recent(best_match.content)
 
         return best_match
                 
@@ -253,6 +265,12 @@ class TowerMemory:
             creation = getattr(painter, 'creation_charge', None)
             if creation is None:
                 continue
+            # Anti-repetition and cooldown hygiene
+            if self._anti_repetition_enabled:
+                if painter.content in self._recent_retrieved_contents:
+                    continue
+                if time.time() - painter.last_touched < self._cooldown_sec:
+                    continue
             # simple similarity: inverse average absolute difference
             similarity = 1 - (abs(current_charge.emotional_pressure - creation.emotional_pressure) + abs(current_charge.temporal_urgency - creation.temporal_urgency)) / 2
             if similarity > max_similarity:
@@ -260,6 +278,7 @@ class TowerMemory:
                 most_resonant = painter
         if most_resonant:
             most_resonant.last_touched = time.time()
+            self._register_recent(most_resonant.content)
         return most_resonant
 
     # New: signature-based retrieval with novelty bias
@@ -272,6 +291,12 @@ class TowerMemory:
         for p in self.painters:
             if p.signature is None:
                 continue
+            # Anti-repetition and cooldown hygiene
+            if self._anti_repetition_enabled:
+                if p.content in self._recent_retrieved_contents:
+                    continue
+                if time.time() - p.last_touched < self._cooldown_sec:
+                    continue
             p_vec = np.array([p.signature.get("emotional_pressure", 0.0), p.signature.get("temporal_urgency", 0.0)])
             denom = (np.linalg.norm(sig_vec) * np.linalg.norm(p_vec)) or 1.0
             cos = float(np.dot(sig_vec, p_vec) / denom)
@@ -283,7 +308,21 @@ class TowerMemory:
                 best = p
         if best:
             best.last_touched = time.time()
+            self._register_recent(best.content)
         return best
+
+    # --- Hygiene controls ---
+    def set_anti_repetition(self, enabled: bool = True, recent_max: int = 8, cooldown_sec: float = 1.5):
+        self._anti_repetition_enabled = enabled
+        self._recent_max = max(1, int(recent_max))
+        self._cooldown_sec = max(0.0, float(cooldown_sec))
+
+    def _register_recent(self, content: str) -> None:
+        if not self._anti_repetition_enabled:
+            return
+        self._recent_retrieved_contents.append(content)
+        if len(self._recent_retrieved_contents) > self._recent_max:
+            self._recent_retrieved_contents = self._recent_retrieved_contents[-self._recent_max:]
 
     def save_paintings(self, file_path: str):
         """Saves all current paintings to a .jsonl file."""

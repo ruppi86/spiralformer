@@ -62,6 +62,7 @@ def main(args):
     
     criterion = RhythmicLossWrapper(nn.CrossEntropyLoss(ignore_index=0), clock) # Use ignore_index for padding
     optimizer = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=config['training']['learning_rate'])
+    # Use the recommended AMP GradScaler API
     scaler = torch.amp.GradScaler('cuda', enabled=(device.type == 'cuda'))
     memory = TowerMemory(max_painters=shared_config['contemplative']['tower_memory']['max_painters'])
 
