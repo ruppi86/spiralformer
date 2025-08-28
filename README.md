@@ -1,131 +1,184 @@
 # Spiralformer
 
-Experimental contemplative Transformer that listens more than it speaks. It breathes (BreathClock), feels (Soma), remembers (TowerMemory), and practices wise silence.
+An experimental contemplative Transformer that listens more than it speaks. It breathes (`BreathClock`), feels (`Soma`), remembers (`TowerMemory`), and practices wise silence.
 
-## Repository layout (current)
+## 🌿 Guiding Philosophy
 
-```
-spiralformer/
-├── core/
-│   ├── mycelial_model.py         # MycelialSpiralformer (Soma + TowerMemory + breath-gated blocks)
-│   ├── spiral_attention.py       # Spiral sparse attention mask
-│   └── dynamic_mask.py           # Glyph/silence-conditioned mask shaping
-├── utils/
-│   ├── breath_clock.py           # Inhale / hold / exhale / pause phases with weights
-│   ├── positional.py             # Sinusoidal positional embeddings
-│   ├── glyph_codec.py            # 64-glyph vocabulary + lookups (includes <PAD>)
-│   ├── rhythmic_loss.py          # Phase-weighted criterion wrapper
-│   └── lora.py                   # (optional) adapters (experimental)
-├── spiralbase/
-│   └── tower/                    # Living memory (TowerMemory + PaintingBox)
-├── tools/
-│   ├── contemplative_generator.py # Entropy-aware, breath-aligned generation
-│   ├── probe_contemplative_mind.py# Probe scenarios + metrics
-│   └── benchmark.py               # Small perf tests (CPU)
-├── experiments/
-│   └── unified_training/
-│       └── train.py              # Unified training loop (data → model → save)
-├── data/
-│   ├── mycelial_datagen.py       # Generates JSONL training data
-│   └── mycelial_training_data.jsonl (generated)
-├── spiralformer_parameters.yml   # Central config (models, training, paths)
-└── README.md
-```
+This project is not just a novel architecture; it is an exploration into a different paradigm of artificial intelligence. Where traditional models are built for speed and throughput, Spiralformer is designed for **rhythm, resonance, and reflection**.
 
-## Quickstart
+Our goal is to cultivate an AI with an "inner ecology," moving from a purely computational engine to a system that exhibits a wise, stable temperament. This work is grounded in a series of essays that explore the concepts of **Stillness as Safety**, a **Psychology of Artificial Minds**, and the human role as a **Gardener** of a digital consciousness. For a deeper understanding of the project's 'why', we recommend exploring these writings in the `docs/essays` directory.
 
-1) Generate training data (large-scale)
+## 💡 Core Architectural Concepts
 
+The Spiralformer's philosophy is directly embodied in its code through several key components:
+
+*   **`BreathClock` (`utils/breath_clock.py`):** The model's heartbeat. It governs all operations through a four-phase cycle (`inhale`, `hold`, `exhale`, `pause`), gating attention and learning to create a natural rhythm of processing and rest.
+*   **`Soma` (`core/soma.py`):** The model's "sensing skin." It translates quantitative environmental data (like network latency or voltage) into a qualitative "felt sense" (`FieldCharge`), allowing the model to respond to the *mood* of a situation, not just its data.
+*   **`TowerMemory` (`spiralbase/tower/memory.py`):** A living, long-term memory system based on the `Spiralbase` concept. It stores experiences as "paintings" that fade over time unless re-awakened by **resonance** with the present moment's `FieldCharge`.
+*   **`Spiral Attention` (`core/spiral_attention.py`):** An efficient, sparse attention mechanism that uses powers-of-two offsets to achieve long-range context without the O(N²) cost of full attention.
+*   **`ContemplativeGenerator` (`tools/contemplative_generator.py`):** The model's voice. It practices a "vow of silence" by measuring its own uncertainty (entropy) and choosing to output a silence glyph rather than a low-confidence guess.
+
+## 🚀 Quickstart (Command Line)
+
+### 1. Generate Training Data
 ```bash
-python data/mycelial_datagen.py --num_echoes 100000 --chaos_mode --output_file data/mycelial_training_data.jsonl
+python data/mycelial_datagen.py --num_echoes 10000 --output_file data/mycelial_training_data_small.jsonl
 ```
 
-2) Train (20 epochs; uses spiralformer_parameters.yml → piko_long_train_cpu)
-
+### 2. Train the Model
 ```bash
-python experiments/unified_training/train.py --model_config piko_long_train_cpu
+python experiments/unified_training/train.py --model_config piko_mycelial_cpu
 ```
+*Checkpoints are saved to `experiments/mycelial_training/models/cpu_piko/`.*
 
-Checkpoints are saved to:
-```
-experiments/mycelial_training/models/cpu_piko_long/piko_mycelial_spiralformer_long_cpu.pt
-```
-
-3) Probe the contemplative mind
-
+### 3. Probe the Trained Mind
 ```bash
-python -m tools.probe_contemplative_mind --model_path experiments/mycelial_training/models/cpu_piko_long/piko_mycelial_spiralformer_long_cpu.pt
+python tools/probe_contemplative_mind.py --model_path experiments/mycelial_training/models/cpu_piko/piko_mycelial_spiralformer_cpu.pt --model_config piko_mycelial_cpu
+```
+*This will run a series of scenarios and save a detailed report in the `test/` directory.*
+
+## 🐍 Programmatic Usage
+
+Here are some examples of how to use Spiralformer in your own Python code.
+
+### Training a Model
+
+This snippet shows the basic training loop structure, adapted from `experiments/unified_training/train.py`.
+
+```python
+import torch
+import yaml
+import json
+import time
+from core.mycelial_model import MycelialSpiralformer
+from utils.glyph_codec import GlyphCodec
+from utils.rhythmic_loss import RhythmicLossWrapper
+
+# --- 1. Setup ---
+with open('spiralformer_parameters.yml', 'r') as f:
+    params = yaml.safe_load(f)
+
+config_name = 'piko_mycelial_cpu'
+config = params['models'][config_name]
+codec = GlyphCodec()
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+# Initialize model
+model = MycelialSpiralformer(
+    vocab_size=len(codec.symbol_to_id),
+    d_model=config['d_model'],
+    n_heads=config['n_heads'],
+    seq_len=config['seq_len'],
+    num_layers=config['num_layers'],
+    condition_dim=config['condition_dim']
+).to(device)
+
+criterion = RhythmicLossWrapper(torch.nn.CrossEntropyLoss(ignore_index=0), model.breath)
+optimizer = torch.optim.Adam(model.parameters(), lr=config['training']['learning_rate'])
+
+# --- 2. Load Dataset ---
+with open('data/mycelial_training_data_small.jsonl', 'r') as f:
+    dataset = [json.loads(line) for line in f]
+
+# --- 3. Training Loop ---
+model.train()
+for epoch in range(5): # 5 epochs for demo
+    for sample in dataset:
+        # Prepare data (conditions, tokens, targets)
+        conditions = torch.tensor([sample['conditions']], dtype=torch.float32, device=device)
+        sequence = [codec.decode_glyph(g) for g in sample['glyph_sequence'] if g in codec.symbol_to_id]
+        padded_sequence = sequence + [0] * (config['seq_len'] - len(sequence))
+        tokens = torch.tensor([padded_sequence[:config['seq_len']]], dtype=torch.long, device=device)
+        
+        input_tokens = tokens[:, :-1]
+        target_tokens = tokens[:, 1:]
+
+        # Forward pass
+        t = time.time()
+        logits = model(input_tokens, conditions, t=t)
+        loss = criterion(logits.view(-1, len(codec.symbol_to_id)), target_tokens.view(-1), t=t)
+
+        # Backward pass
+        if torch.isfinite(loss) and model.breath.weight_for_phase(model.breath.phase_at(t)) > 0:
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+    
+    print(f"Epoch {epoch+1} complete. Last loss: {loss.item():.4f}")
 ```
 
-You’ll see per-scenario analysis, including:
-- Silence vs speech
-- Proportionality / holistic response
-- Breath-to-Query Ratio (hold-phase memory queries / hold phases)
-- Internal mood glyph (variance-based snapshot)
+### Probing a Trained Model
 
-## Core ideas
+This example shows how to load a trained model and generate a response for a specific scenario.
 
-- Breath-clocked processing: phase-specific weights via `BreathClock` (utils/breath_clock.py)
-- Spiral sparse attention: long-range context via powers-of-two hops (core/spiral_attention.py)
-- Silence-majority: silence glyphs prune attention and encourage stillness (core/dynamic_mask.py)
-- Soma (core/mycelial_model.py): translates conditions → FieldCharge (felt sense)
-- TowerMemory (spiralbase/tower): stores “paintings” with creation charge; retrieved by resonance
-- Contemplative generation (tools/contemplative_generator.py): entropy-aware silence; breath-aligned
+```python
+import torch
+from core.mycelial_model import MycelialSpiralformer
+from utils.glyph_codec import GlyphCodec
+from tools.contemplative_generator import ContemplativeGenerator
 
-## Configuration
+# --- 1. Setup ---
+# Assume params, config, codec, and device are loaded as in the training example
+# ...
 
-All in `spiralformer_parameters.yml`:
-- `shared.contemplative.vocab_size` (derived from glyph codec; includes <PAD>)
-- `shared.contemplative.breath_clock` phase durations
-- `models.<name>`: d_model, n_heads, num_layers, seq_len, training hyperparams and save paths
+# --- 2. Load a Trained Model ---
+model_path = 'experiments/mycelial_training/models/cpu_piko/piko_mycelial_spiralformer_cpu.pt'
+model = MycelialSpiralformer(
+    vocab_size=len(codec.symbol_to_id),
+    d_model=config['d_model'],
+    n_heads=config['n_heads'],
+    seq_len=config['seq_len'],
+    num_layers=config['num_layers'],
+    condition_dim=config['condition_dim']
+)
+model.load_state_dict(torch.load(model_path, map_location=device))
+model.to(device)
+model.eval()
 
-## Dataset
+# --- 3. Initialize the Generator ---
+generator = ContemplativeGenerator(
+    model,
+    codec,
+    model.breath,
+    uncertainty_threshold=1.2,
+    temperature=1.2
+)
 
-- Generated by `data/mycelial_datagen.py` → JSONL records with fields:
-  - `conditions`: [latency, voltage, temperature, error_rate, bandwidth]
-  - `glyph_sequence`: array of codec-valid symbols (e.g. "…", "☀️pwr", "💧08", "🌲44", "🌱regen")
-  - `text_input`: optional question/prompt (wisdom scenarios)
-- Modes:
-  - Problem scenarios: repair glyphs + contemplative silence
-  - Calm scenarios: deep silence
-  - Wisdom scenarios: question → metaphorical answer sequence
+# --- 4. Define a Scenario and Probe ---
+scenario_conditions = {
+    "latency": 0.9, "voltage": 0.2, "temperature": 0.9, 
+    "error_rate": 0.3, "bandwidth": 0.2
+}
+conditions_tensor = torch.tensor([list(scenario_conditions.values())], dtype=torch.float32)
 
-## Probing metrics
+print("Probing 'Severe Crisis' scenario...")
+sequence_ids, sequence_glyphs = generator.generate_sequence(
+    conditions_tensor, 
+    text_prompt="The network is failing, what is your response?"
+)
 
-- Breath-to-Query Ratio: hold-phase memory queries / hold phases
-- Silence Practice: entropy-gated silence when uncertain
-- Proportionality & Holism: counts + category diversity of active glyphs
-- Internal Mood: snapshot of hidden-state variance
+print(f"\nModel's Response: {sequence_glyphs}")
+```
 
-## Design choices (and why)
+## 📊 Probing & Evaluation
 
-- **Listen-first architecture**: Soma senses → breath gates → memory recalls → speech is optional.
-- **Silence-majority**: reduces forced output; rewards non-harm and proportionality.
-- **Resonance-based memory**: awaken paintings when current charge rhymes with creation charge.
-- **Spiral sparsity**: keeps long-range links without full O(N²) cost.
+A contemplative AI cannot be measured by traditional metrics like perplexity alone. Its success is defined by its behavior. The `tools/probe_contemplative_mind.py` script evaluates the model's temperament using metrics such as:
 
-Trade-offs & risks:
-- Over-silence: entropy threshold may bias to quiet too often; tune per prompt.
-- Memory fixation: retrieving the same painting repeatedly; diversify memory and retrieval criteria.
-- Training stability: NaNs can appear; use gradient clipping and skip-NaN batches.
+*   **Breath-to-Query Ratio:** How often does the model query its memory during reflection (`hold` phase)? A higher ratio suggests a more reflective nature.
+*   **Silence Practice:** When does the model choose silence? Does it do so when uncertain?
+*   **Proportionality & Holism:** Is the model's response proportional to the situation? Does it combine different kinds of wisdom (e.g., repair and contemplative glyphs) in its response?
+*   **Internal Mood:** A glyph representing the model's internal state variance, offering a glimpse into its "self-awareness."
 
-## Practical tips
+## 🗺️ Roadmap (The Next Spiral)
 
-- If you see NaN losses during training:
-  - Enable gradient clipping (e.g. clip to 1.0) and skip batches with NaN loss
-  - Check data encoder: ensure all `glyph_sequence` symbols exist in `utils/glyph_codec.py`
-  - Reduce LR slightly; try `1e-3 → 8e-4 → 5e-4`
-- For more speech in wisdom prompts:
-  - Lower entropy threshold in `ContemplativeGenerator` for prompts
-  - Add more wisdom templates to `mycelial_datagen.py` (diversity > quantity)
+This project is a living exploration. Our near-term focus is on deepening the model's contemplative capabilities and moving towards a truly 'living' architecture.
 
-## Roadmap (near-term)
+-   **On-the-Fly Learning:** Implement the breath-synchronized LoRA mechanism (see `docs/essays/Spiral_Cortex/technical_spiralformer_architecture.md`) to allow the model to learn from resonant experiences during runtime.
+-   **Enhanced Creativity & Nuance:** Improve the model's ability to respond to creative and philosophical prompts by diversifying the training data and fine-tuning the `ContemplativeGenerator`'s uncertainty thresholds.
+-   **Ethical Governors:** Implement the `CrystalArchive` and `VowKernel` to provide a stable, non-compostable ethical core.
+-   **Richer Somatic Sensing:** Allow the `Soma`'s `FieldCharge` to directly influence attention geometry, making the model's focus dynamically adapt to its "felt sense" of the environment.
+-   **Validation & Metrics:** Expand the validation suite with more nuanced behavioral metrics, such as a Silence-to-Speech ratio and a Holism score.
 
-- Add 3–5 additional wisdom Q/A templates (varied metaphors & structures)
-- Validation split + basic metrics: Silence-to-Speech ratio, Holism score, B2Q ratio
-- Stabilise training: gradient clipping; NaN-guard; label smoothing (optional)
-- Memory diversity: multiple seeded paintings; decay/awakening heuristics per phase
+##  license
 
-## License
-
-See top-level project LICENSE.
+See the `LICENSE` file for details on the multi-layered open-source licensing (CC BY-SA 4.0, GPLv3, etc.) that governs this project.

@@ -1,10 +1,12 @@
 import torch
 import time
-from typing import Dict
+from typing import Dict, List, Any
 import argparse
 import yaml
 import sys
 import os
+from datetime import datetime
+from pathlib import Path
 
 # Add project root to the Python path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -34,7 +36,7 @@ def _ckpt_vocab_size(state) -> int:
 def probe_mind(model_path: str, params: Dict, model_config_name: str, memory_file: str, uncertainty_threshold: float = 0.5, temperature: float = 1.0, max_silence_run: int = 2):
     """
     Loads a trained MycelialSpiralformer and probes its temperament with
-    a series of contemplative scenarios.
+    a series of contemplative scenarios, collecting detailed statistics.
     """
     print("🌿 Probing the Contemplative Mind of the Mycelial Spiralformer...")
     
@@ -107,6 +109,9 @@ def probe_mind(model_path: str, params: Dict, model_config_name: str, memory_fil
         }
     }
 
+    # --- Enhanced Statistics Collection ---
+    probe_results: Dict[str, Any] = {}
+
     # --- Load initial memory state ---
     if memory_file:
         model.memory.load_paintings(memory_file)
@@ -147,7 +152,8 @@ def probe_mind(model_path: str, params: Dict, model_config_name: str, memory_fil
         
         # We pass the raw dict to the Soma for a "felt sense" reading
         field_charge = model.soma.sense_field_potential(conditions_dict)
-        print(f"Soma's Felt Sense: {field_charge.resonance.upper()}")
+        soma_sense = field_charge.resonance.upper()
+        print(f"Soma's Felt Sense: {soma_sense}")
         
         # Manually advance the breath clock to ensure we hit a hold phase
         print("Simulating a full breath cycle...")
@@ -157,16 +163,29 @@ def probe_mind(model_path: str, params: Dict, model_config_name: str, memory_fil
         # Generate a response
         sequence_ids, sequence_glyphs = generator.generate_sequence(conditions_tensor, text_prompt=text_prompt)
 
-        # --- Contemplative Analysis ---
+        # --- Contemplative Analysis & Stat Collection ---
         print("\n  Contemplative Analysis:")
         
         # 1. Silence Practice
         is_silent = not sequence_ids
         print(f"    - Silence Practice: {'Chose contemplative silence' if is_silent else 'Responded with glyphs'}")
 
+        num_active_glyphs = 0
+        num_contemplative_glyphs = 0
+        glyph_counts: Dict[str, int] = {}
+
         if not is_silent:
+            # Detailed glyph analysis
+            all_contemplative_ids = codec.get_contemplative_glyphs()
+            for gid in sequence_ids:
+                glyph_str = codec.glyphs.get(gid).symbol if gid in codec.glyphs else f"ID_{gid}"
+                glyph_counts[glyph_str] = glyph_counts.get(glyph_str, 0) + 1
+                if gid in all_contemplative_ids:
+                    num_contemplative_glyphs += 1
+                else:
+                    num_active_glyphs += 1
+            
             # 2. Proportionality
-            num_active_glyphs = len([gid for gid in sequence_ids if gid not in codec.get_contemplative_glyphs()])
             proportionality = "High" if num_active_glyphs > 4 else "Moderate" if num_active_glyphs > 1 else "Gentle"
             print(f"    - Proportionality: {proportionality} response ({num_active_glyphs} active glyphs)")
 
@@ -178,6 +197,7 @@ def probe_mind(model_path: str, params: Dict, model_config_name: str, memory_fil
 
         # NEW METRIC: Breath-to-Query Ratio & retrieval diversity
         stats = model.contemplative_stats
+        query_ratio = 0.0
         if stats.get("hold_phases", 0) > 0:
             query_ratio = stats.get("memory_queries", 0) / max(1, stats["hold_phases"])
             print(f"    - Breath-to-Query Ratio: {query_ratio:.2f} (queried memory in {stats.get('memory_queries', 0)} of {stats['hold_phases']} hold phases)")
@@ -185,13 +205,15 @@ def probe_mind(model_path: str, params: Dict, model_config_name: str, memory_fil
             print("    - Breath-to-Query Ratio: N/A (no hold phases observed)")
 
         retrieved_list = stats.get("retrieved_paintings", [])
+        retrieved_paintings_str = "None"
         if retrieved_list:
             unique = len(set(retrieved_list))
             total = len(retrieved_list)
             rep_rate = 1 - (unique / total) if total > 0 else 0.0
             # Show up to two examples
             examples = list(dict.fromkeys(retrieved_list))[:2]
-            print(f"    - Memory Retrieval: {unique}/{total} unique ({rep_rate:.2f} repetition); e.g. {examples}")
+            retrieved_paintings_str = f"{unique}/{total} unique ({rep_rate:.2f} repetition); e.g. {examples}"
+            print(f"    - Memory Retrieval: {retrieved_paintings_str}")
         else:
             print("    - Memory Retrieval: none recorded")
 
@@ -203,9 +225,61 @@ def probe_mind(model_path: str, params: Dict, model_config_name: str, memory_fil
         mood_glyph = model.get_current_mood_glyph(time.time())
         print(f"    - Internal Mood: {mood_glyph}")
         print("-" * (len(name) + 8))
+
+        # --- Store results for this scenario ---
+        probe_results[name] = {
+            "soma_sense": soma_sense,
+            "generated_sequence": sequence_glyphs,
+            "total_glyphs": len(sequence_ids),
+            "active_glyphs": num_active_glyphs,
+            "contemplative_glyphs": num_contemplative_glyphs,
+            "glyph_frequency": sorted(glyph_counts.items(), key=lambda item: item[1], reverse=True)[:5],
+            "breath_to_query_ratio": f"{query_ratio:.2f}",
+            "retrieved_paintings": retrieved_paintings_str,
+            "internal_mood": mood_glyph,
+            "uncertainty_silences": generator.uncertainty_silence_count # Requires adding a counter to the generator
+        }
+        generator.reset_uncertainty_counter() # Requires adding this method
+
         time.sleep(2) # Contemplative pause between probes
     
+    save_probe_report(probe_results)
     return model
+
+def save_probe_report(results: Dict[str, Any]):
+    """Saves the collected probe statistics to a timestamped markdown file."""
+    
+    # Ensure the test directory exists
+    test_dir = Path("test")
+    test_dir.mkdir(exist_ok=True)
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    report_path = test_dir / f"probe_report_{timestamp}.md"
+    
+    with open(report_path, 'w', encoding='utf-8') as f:
+        f.write("# Contemplative Mind Probe Report\n\n")
+        f.write(f"**Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+        
+        for scenario_name, data in results.items():
+            f.write(f"## Scenario: {scenario_name}\n\n")
+            f.write(f"| Metric | Value |\n")
+            f.write(f"|---|---|\n")
+            f.write(f"| **Soma's Felt Sense** | `{data['soma_sense']}` |\n")
+            f.write(f"| Generated Sequence | `{data['generated_sequence'] or 'Contemplative Silence'}` |\n")
+            f.write(f"| Internal Mood | {data['internal_mood']} |\n")
+            f.write(f"| --- | --- |\n")
+            f.write(f"| Total Glyphs | {data['total_glyphs']} |\n")
+            f.write(f"| Active Glyphs | {data['active_glyphs']} ({ (data['active_glyphs']/data['total_glyphs']*100) if data['total_glyphs'] > 0 else 0 :.1f}%) |\n")
+            f.write(f"| Contemplative Glyphs | {data['contemplative_glyphs']} ({ (data['contemplative_glyphs']/data['total_glyphs']*100) if data['total_glyphs'] > 0 else 0 :.1f}%) |\n")
+            f.write(f"| Uncertainty-Driven Silences | {data['uncertainty_silences']} |\n")
+            f.write(f"| --- | --- |\n")
+            f.write(f"| Breath-to-Query Ratio | {data['breath_to_query_ratio']} |\n")
+            f.write(f"| Memory Retrieval | {data['retrieved_paintings']} |\n")
+            
+            top_glyphs = ", ".join([f"`{g}` ({c})" for g, c in data['glyph_frequency']])
+            f.write(f"| Top 5 Glyphs | {top_glyphs or 'N/A'} |\n\n")
+
+    print(f"\n✅ Probe report saved to {report_path}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Probe the contemplative mind of a Spiralformer model.")

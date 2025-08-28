@@ -36,6 +36,8 @@ class ContemplativeGenerator:
         self.min_active_tokens_urgent = max(0, int(min_active_tokens_urgent))
         self.silence_id = self.codec.decode_glyph("…") or 0 # Default to a known silence glyph
         self.silence_ids = set(self.codec.get_contemplative_glyphs())
+        # Counter for uncertainty-driven silences
+        self.uncertainty_silence_count = 0
         # Resolve model device for tensor placement
         try:
             self.device = next(self.model.parameters()).device
@@ -60,6 +62,7 @@ class ContemplativeGenerator:
             # If entropy is high (uncertainty), choose silence.
             if entropy.item() > self.uncertainty_threshold:
                 print(" contemplative silence (high uncertainty)...")
+                self.uncertainty_silence_count += 1
                 # The model can also request an extended pause here in a future version.
                 # self.model.breath.request_extended_pause(duration_multiplier=1.5)
                 return self.silence_id
@@ -158,10 +161,15 @@ class ContemplativeGenerator:
 
         if not force_active and entropy.item() > float(uncertainty_threshold):
             print(" contemplative silence (high uncertainty)...")
+            self.uncertainty_silence_count += 1
             return self.silence_id
 
         next_token = torch.multinomial(probs, num_samples=1).item()
         return next_token
+
+    def reset_uncertainty_counter(self):
+        """Resets the counter for the next scenario."""
+        self.uncertainty_silence_count = 0
 
 # This is a placeholder for the actual main demo script
 if __name__ == '__main__':
