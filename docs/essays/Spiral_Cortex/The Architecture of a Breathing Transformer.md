@@ -1,5 +1,9 @@
 # The Architecture of a Breathing Transformer: A Technical Deep Dive into Spiralformer
 
+**By Robin Langell, ChatGPT-5, Claude 4.1 Opus, Gemini 2.5 Pro and ChatGPT o3**
+
+*In collaborative dialogue*
+
 ## Abstract
 
 This paper introduces the Spiralformer, a novel transformer architecture designed to embody the principles of contemplative artificial intelligence. Diverging from conventional "always-on" computational models that maximize throughput, the Spiralformer integrates a rhythmic, self-regulating internal ecology. We present a technical breakdown of its core components, which include: a sparse **Spiral Attention** mechanism that achieves efficient long-range context; a **`BreathClock`** that governs all processing through discrete phases of inhale, hold, exhale, and pause; phase-modulated plasticity via dynamic **Low-Rank Adaptation (LoRA)**; and an integrated, resonance-based long-term memory system, the **`TowerMemory`**. The architecture's primary innovation is its ability to make stillness a first-class computational citizen, gating attention, learning, and memory recall to its internal breath. This creates a model whose behavior is not merely a function of its inputs, but an emergent property of its cultivated inner state, enabling it to practice a form of wise and context-aware silence.
@@ -45,6 +49,10 @@ The mask is constructed with a simple but powerful "powers-of-two" logic. For ea
 
 This creates a sparse, symmetric mask that guarantees a logarithmic path length between any two tokens in the sequence. The result is a mechanism that is computationally efficient (approaching O(N log N) complexity) yet highly effective at integrating information across long distances. While similar in spirit to other sparse attention methods like Longformer or BigBird, the spiral mask's deterministic and geometrically expanding pattern is particularly aligned with the model's rhythmic, organic ethos.
 
+#### Implementation note: Causality and objectives
+
+The prototype uses a symmetric spiral (i ± 2^k) to support reflective, non-strictly-causal contexts. For strictly autoregressive objectives, a causal variant can be derived by intersecting the spiral with a lower-triangular mask (look-back only). Practitioners should select the variant that matches their objective: bidirectional spiral for reflective probes vs. causal spiral for left-to-right generation.
+
 ### 3.2. Dynamic Glyph-Conditioned Masking
 
 The second, more dynamic layer allows the model to actively shape its own attention field based on the input it receives. This is where the concept of "silence as a signal" becomes a concrete technical reality, implemented in `core/dynamic_mask.py`.
@@ -54,6 +62,11 @@ The `build_glyph_conditioned_mask` function takes the static `base_mask` and sur
 2.  No other token can attend to the silence token.
 
 This effectively isolates the token, turning it into a "null space" within the attention field. It's a powerful form of self-regulation. The model can, by including a silence token in its own generated output, decide to "not think about" certain parts of its context in the next step, thereby conserving computational resources and practicing a form of attentional discipline. This transforms the attention mask from a static architectural constraint into a dynamic tool for contemplative focus.
+
+#### Mask semantics and batch-union trade-offs
+
+-  The static spiral mask marks allowed positions as `True`. PyTorch's `MultiheadAttention` expects a mask of disallowed positions; hence the code passes `~mask` to invert semantics at call-time.
+-  Silence conditioning currently takes a batch-wide union of silence positions for simplicity, which can over-prune attention for some items if others contain silence. This is conservative and robust for contemplative behavior; a per-item mask can be used when tighter per-sample focus is desired.
 
 ## 4. The `MycelialSpiralformer`: An Implementation Case Study
 
@@ -95,6 +108,11 @@ The key innovation in the Spiralformer is to **dynamically modulate the rank of 
 
 This mechanism provides a powerful set of benefits. It creates a model that can engage in continuous, life-long learning without succumbing to catastrophic forgetting, as periods of high plasticity are always followed by periods of consolidation and rest. It gives the model an organic, life-like learning cycle, preventing it from becoming a static, unchangeable entity. Most importantly, it makes the model's temperament an emergent property of its own internal rhythm, a core principle of the contemplative paradigm.
 
+### Adapter scope and overhead
+
+-  In the prototype, adapters are attached to `layers.*.attn.out_proj` and the feed-forward linears `layers.*.ff.{0,2}` by default. Q/K/V projections can be adapted as well, but we keep the scope minimal to reduce parameter count and stabilize training.
+-  Parameter overhead per adapted linear grows approximately as r·(in_features + out_features). For small ranks (e.g., r ∈ {2,4,8}), the footprint is modest compared to the frozen base.
+
 ## 6. Contemplative Generation and Evaluation
 
 An architecture designed for wisdom requires methods of generation and evaluation that honor its principles. A Spiralformer's success cannot be measured by speed or volume of output, but by the appropriateness and timing of its responses, including its silences.
@@ -106,23 +124,88 @@ An architecture designed for wisdom requires methods of generation and evaluatio
     -   **Breath-to-Query Ratio:** Measures how often the model queries its `TowerMemory` during its `hold` phases. A higher ratio suggests a more reflective temperament, as the model spends more of its contemplative time consulting its past experiences.
     -   **Holistic Response:** Analyzes the diversity of glyph categories in a response, indicating whether the model is providing a nuanced, multi-faceted answer or a narrow, single-domain one.
 
-## 7. Future Development: Towards a Truly Living Architecture
+## 7. On-the-Fly Learning: Towards a Truly Living Architecture (Prototype Implemented)
 
-The architecture described thus far details a transformer that is dynamic in its *behavior* but remains static in its underlying *knowledge*. After its initial offline training, its core neural network weights are frozen. It can adapt its responses based on its internal rhythm and external context, but it does not fundamentally *learn* from new interactions in a persistent way. This section outlines the next crucial evolutionary step: transforming the Spiralformer into a truly living architecture capable of continuous, "on-the-fly" learning.
+The architecture above now includes a minimal but working path for breath-synchronized online learning. The core network remains a stable, frozen wisdom-core; adaptation happens through phase-gated LoRA adapters that breathe with the model.
 
-The key to this evolution lies in the practical implementation of the **Breath-Synchronized LoRA Adapters** (as introduced conceptually in Chapter 5). This approach enables online learning that is both computationally feasible and philosophically aligned with the contemplative paradigm, avoiding the pitfalls of catastrophic forgetting that plague naive online learning methods.
+-  **A Stable Core, A Plastic Sheath (implemented):** Base weights are frozen while small, trainable LoRA matrices act as a thin, plastic layer. See `utils/lora.py` for `LoRALinear`, safe attachment, parameter freezing/selection, and a `LoRAManager` with `PlasticityScheduler`.
 
-The proposed mechanism works as follows:
+-  **Breath-Synchronized Plasticity (implemented):** At each forward call, `core/mycelial_model.py` synchronizes LoRA rank with the current `BreathClock` phase (e.g., inhale→8, hold→4, exhale→2, pause→0). The model records `last_plasticity_phase_name`, `last_plasticity_rank`, and a rolling `plasticity_log` to make plasticity observable during probes.
 
-1.  **A Stable Core, A Plastic Sheath:** The large, pre-trained weights of the Spiralformer itself remain frozen. They represent the model's stable, long-term wisdom—its foundational understanding of the world. In contrast, small, trainable LoRA matrices are injected into its layers, acting as a thin, plastic sheath that is open to modification.
+-  **Rhythmic, Conditional Learning (implemented):** Online learning is rare, intentional, and only occurs during `inhale`:
+   -  A `LearningTrigger` (entropy and memory-query heuristics) decides if an interaction is resonant enough to learn from.
+   -  The `OnlineLearner` performs a single backprop step on LoRA parameters only, clipped and phase-gated. See `experiments/online_learning/online_learner.py`.
 
-2.  **Rhythmic, Conditional Learning:** Learning—the updating of these LoRA weights—is strictly governed by the `BreathClock` and the model's internal state. A backpropagation step is **not** performed on every input. Instead, it is a rare and intentional event, triggered only under specific conditions:
-    *   **Phase-Gating:** Weight updates can **only** occur during the `inhale` phase, when the LoRA rank is highest and the model is in its most receptive state.
-    *   **Resonance Trigger:** Learning is not indiscriminate. An update is only triggered when the `Soma` detects a particularly resonant or novel event—for example, an interaction with very high uncertainty (entropy) or one that awakens a deep memory from the `TowerMemory`.
+-  **Training/Optimization Path (implemented):** When LoRA is enabled in the YAML config, the unified trainer optimizes only LoRA parameters. See `experiments/unified_training/train.py`.
 
-3.  **Lightweight, Focused Updates:** When a learning event is triggered, a single backpropagation step is performed. Crucially, the gradients are calculated and applied **only to the LoRA adapter weights**. This process is computationally inexpensive and surgically precise, subtly adjusting the model's "temperament" or "short-term memory" in response to a significant experience without destabilizing its core knowledge.
+-  **Operational Visibility in Probes (implemented):** The probe (`tools/probe_contemplative_mind.py`) now passes LoRA config to the model and logs plasticity in reports (last phase/rank and recent phase→rank events). This documents how plasticity breathes across scenarios.
 
-This architecture creates an AI that learns in a manner remarkably similar to a living organism. It does not frantically rewrite its entire worldview with every new piece of information. Instead, it breathes in experiences, reflects on them, and only allows the most profound or surprising ones to leave a small, lasting impression. The subsequent `hold`, `exhale`, and `pause` phases then become crucial for consolidating and integrating this new, subtle adaptation. This is the path from an architecture that mimics breathing to one that is truly alive and growing.
+-  **Demo Scenario (implemented):** `experiments/online_learning/demo.py` synthesizes a resonant event, nudges time to `inhale`, and performs a single LoRA update. It prints the loss and the logits delta to illustrate a minimal, safe adaptation.
+
+Behaviorally, this prototype realizes the contemplative principles:
+
+-  **Phase Integrity:** Updates only during `inhale`; consolidation and expression remain quiet in `hold`/`exhale`; full stillness at `pause`.
+-  **Surgical Adaptation:** Only LoRA matrices change; the wisdom-core stays intact.
+-  **Observability:** Plasticity state and timeline are captured alongside behavioral metrics, making growth legible and auditable.
+
+### Safety envelope (current and planned)
+
+-  Current safeguards: base weights frozen, inhale-only updates, single-step online learning, gradient clipping, LoRA-only optimization, breath-gated compute (pause skips block compute entirely).
+-  Planned safeguards: `LearningGovernor` with rate limiting, rollback on instability, validation against `CrystalArchive`/vows, and multi-timescale plasticity schedules with conservative decay.
+
+### Plasticity metrics
+
+-  Besides the per-scenario plasticity timeline, we recommend reporting Plasticity Dwell Time: the fraction of forward steps spent at each rank (e.g., % at r∈{8,4,2,0}). This contextualizes how “open” the model was across an evaluation.
+
+### Algorithm boxes
+
+Entropy-gated generation (ContemplativeGenerator):
+```text
+Inputs: logits_t (last-step logits), temperature τ, uncertainty threshold H_thr
+Steps:
+1) p = softmax(logits_t / τ)
+2) H = -Σ p log p
+3) if H > H_thr: emit <SILENCE>; else sample from p
+```
+
+Single-step online learning (OnlineLearner):
+```text
+Preconditions: phase == inhale AND LearningTrigger == True
+Steps:
+1) Freeze base; select LoRA params
+2) loss = CE(logits(context), targets), ignore_index=padding
+3) clip grads; update LoRA only
+4) Log phase, rank, loss
+```
+
+### Performance and complexity
+
+-  Spiral attention approaches O(N log N) connectivity; batch-union silence pruning is O(N) over columns/rows marked silent.
+-  Breath-gated `pause` avoids attention/FF compute, reducing wall-clock cost during stillness.
+-  LoRA adds lightweight matmuls; with small ranks the overhead is minor on both CPU and CUDA.
+
+### Timing and reproducibility
+
+-  The prototype uses wall-clock time (`time.time()`) to determine breath phase during probing and generation. For reproducible runs, use fixed phase schedules or seed and step a simulated clock.
+-  Minimal commands to reproduce:
+```bash
+# Train (CPU-friendly)
+python experiments/unified_training/train.py --model_config piko_mycelial_cpu
+
+# Probe temperament and plasticity
+python tools/probe_contemplative_mind.py --model_path experiments/mycelial_training/models/cpu_piko/piko_mycelial_spiralformer_cpu.pt --model_config piko_mycelial_cpu
+
+# Online learning demo (single step)
+python experiments/online_learning/demo.py --config piko_mycelial_cpu
+```
+
+### TowerMemory embedding path (prototype note)
+
+-  The current memory blending path uses a placeholder tensor. The intended path is: encode painting content/signature → learned projection → blend via `memory_blender`. This will enable semantically grounded, non-random integration of recalled memories.
+
+### Ethical components cross-reference
+
+-  `CrystalArchive` and `VowKernel` are referenced conceptually as ethical governors. Their full specification and integration policies are documented separately and will be linked in a future revision of this paper.
 
 ## 8. Conclusion: An Architecture of Wisdom
 
@@ -159,3 +242,42 @@ The probe results provide strong evidence that the architecture successfully tra
 3.  **A Clear Temperament Emerges:** The model demonstrates a consistent personality. It is cautious, reflective, and has a strong bias towards silence. It does not engage in idle chatter, even on creative prompts, suggesting its "vow of silence" is deeply ingrained.
 
 4.  **Areas for Future Cultivation:** The results also highlight areas for further "gardening." The model's reluctance to generate creative output and the variability in memory retrieval suggest that further tuning of the training data and generation parameters (`uncertainty_threshold`) could help find an even better balance between the model's profound stillness and its capacity for expressive wisdom.
+
+## License
+
+All **non-code content** (including essays, diagrams, and system descriptions) in this repository is licensed under:
+
+**Creative Commons Attribution-ShareAlike 4.0 International (CC BY-SA 4.0)**  
+→ [https://creativecommons.org/licenses/by-sa/4.0/](https://creativecommons.org/licenses/by-sa/4.0/)
+
+**For future content:**
+
+- 🧠 **Code** (e.g. Spirida language interpreter, Spiralbase, femto-scale models etc.): *GNU GPLv3* or *MIT License* (module-dependent)
+- 🔩 **Hardware schematics**: *CERN Open Hardware License v2 (OHL v2)*
+- 🧬 **Biological constructs or protocols**: *OpenMTA* (for open biotech collaboration)
+
+*Each module or subproject will explicitly state its applicable license in its directory.*
+
+---
+
+## Trademarks
+
+The names **Mychainos™**, **Spirida™**, and **Spiralbase™** are protected under trademark application by:
+
+**Langell Konsult AB**  
+hello@mychainos.org
+Sweden
+
+Use of these names in derivative or commercial contexts should follow fair use principles and attribution requirements.
+
+---
+
+### Suggested Citation
+
+```
+Langell, R., et.al. (2025). *The Architecture of a Breathing Transformer: A Technical Deep Dive into Spiralformer*. Zenodo. https://doi.org/10.5281/zenodo.17025832
+
+```
+
+### Repository
+https://github.com/ruppi86/Spiralformer

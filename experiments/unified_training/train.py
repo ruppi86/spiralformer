@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../.
 from core.mycelial_model import MycelialSpiralformer
 from utils.breath_clock import BreathClock
 from utils.rhythmic_loss import RhythmicLossWrapper
+from utils.lora import get_lora_parameters, freeze_base_model
 from spiralbase import TowerMemory
 from utils.glyph_codec import GlyphCodec
 
@@ -50,6 +51,9 @@ def main(args):
         pause=breath_params['pause']
     )
     
+    # Per-model LoRA config (fallback to shared if absent)
+    lora_cfg = config.get('lora', shared_config.get('lora', {}))
+
     model = MycelialSpiralformer(
         d_model=config['d_model'],
         n_heads=config['n_heads'],
@@ -57,11 +61,20 @@ def main(args):
         num_layers=config['num_layers'],
         vocab_size=len(codec.symbol_to_id),
         condition_dim=config['condition_dim'],
-        padding_idx=0
+        padding_idx=0,
+        lora_config=lora_cfg
     ).to(device)
     
     criterion = RhythmicLossWrapper(nn.CrossEntropyLoss(ignore_index=0), clock) # Use ignore_index for padding
-    optimizer = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=config['training']['learning_rate'])
+
+    # If LoRA is enabled, freeze base weights and optimize LoRA params only
+    if lora_cfg.get('enabled', False):
+        freeze_base_model(model)
+        lora_params = get_lora_parameters(model)
+        optimizer = torch.optim.Adam(lora_params, lr=config['training']['learning_rate'])
+        print(f"LoRA enabled: optimizing {sum(p.numel() for p in lora_params)} parameters across {len(lora_params)} tensors.")
+    else:
+        optimizer = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=config['training']['learning_rate'])
     # Use the recommended AMP GradScaler API
     scaler = torch.amp.GradScaler('cuda', enabled=(device.type == 'cuda'))
     memory = TowerMemory(max_painters=shared_config['contemplative']['tower_memory']['max_painters'])

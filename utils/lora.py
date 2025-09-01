@@ -50,21 +50,102 @@ class LoRALinear(nn.Module):
             out = out + lora_out * self.alpha / self.r
         return out
 
+    # --- Compatibility shims for modules that access .weight/.bias directly (e.g., MultiheadAttention) ---
+    @property
+    def weight(self):  # type: ignore[override]
+        return self.base.weight
+
+    @property
+    def bias(self):  # type: ignore[override]
+        return self.base.bias
+
+    @property
+    def in_features(self) -> int:
+        return self.base.in_features
+
+    @property
+    def out_features(self) -> int:
+        return self.base.out_features
+
 
 def attach_lora(model: nn.Module, target_substrings=("q_proj", "v_proj"), r: int = 4) -> Dict[str, Tuple[nn.Module, LoRALinear]]:
     """Replace Linear layers whose names contain any of `target_substrings` with LoRA adapters.
 
     Returns mapping original_name -> (old_linear, new_lora_linear)
     """
-    replaced = {}
+    replaced: Dict[str, Tuple[nn.Module, LoRALinear]] = {}
+
+    def _get_parent(root: nn.Module, dotted: str) -> Tuple[nn.Module, str]:
+        parent = root
+        *path, last = dotted.split(".")
+        for p in path:
+            if p.isdigit():
+                parent = parent[int(p)]  # type: ignore[index]
+            else:
+                parent = getattr(parent, p)
+        return parent, last
+
     for name, module in model.named_modules():
         if isinstance(module, nn.Linear) and any(s in name for s in target_substrings):
-            parent = model
-            *path, last = name.split(".")
-            for p in path:
-                parent = getattr(parent, p)
+            parent, last = _get_parent(model, name)
             old = getattr(parent, last)
             lora_layer = LoRALinear(old, r=r)
             setattr(parent, last, lora_layer)
             replaced[name] = (old, lora_layer)
-    return replaced 
+    return replaced
+
+
+def iter_lora_layers(model: nn.Module):
+    for m in model.modules():
+        if isinstance(m, LoRALinear):
+            yield m
+
+
+def freeze_base_model(model: nn.Module) -> None:
+    """Freeze all parameters, then unfreeze LoRA adapter matrices (A and B)."""
+    for p in model.parameters():
+        p.requires_grad = False
+    for lora in iter_lora_layers(model):
+        if lora.r > 0:
+            if lora.A is not None:
+                lora.A.requires_grad = True
+            if lora.B is not None:
+                lora.B.requires_grad = True
+
+
+def get_lora_parameters(model: nn.Module):
+    """Return a list of trainable LoRA parameters (A and B matrices)."""
+    params = []
+    for lora in iter_lora_layers(model):
+        if lora.r > 0:
+            if lora.A is not None and lora.A.requires_grad:
+                params.append(lora.A)
+            if lora.B is not None and lora.B.requires_grad:
+                params.append(lora.B)
+    return params
+
+
+class LoRAManager:
+    """Manager to control LoRA adapters across a model."""
+
+    def __init__(self, root: nn.Module):
+        self.root = root
+
+    def set_rank_all(self, r: int) -> None:
+        for layer in iter_lora_layers(self.root):
+            layer.set_rank(r)
+
+    def set_rank_for_phase(self, phase_name: str, rank_map: Dict[str, int]) -> int:
+        target = int(rank_map.get(phase_name, 0))
+        self.set_rank_all(target)
+        return target
+
+
+class PlasticityScheduler:
+    """Simple phase→rank scheduler."""
+
+    def __init__(self, rank_map: Dict[str, int]):
+        self.rank_map = dict(rank_map)
+
+    def rank_for_phase(self, phase_name: str) -> int:
+        return int(self.rank_map.get(phase_name, 0))

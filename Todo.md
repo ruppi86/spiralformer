@@ -274,3 +274,237 @@ The on-the-fly learning mechanism transforms Spiralformer from a static oracle t
 - **Ethical Boundaries**: Learning must strengthen, never weaken, the core vows
 
 Remember: We're not optimizing for maximum adaptation speed, but for wise, sustainable growth that honors the contemplative way.
+
+## 🌀 Phase 7: Spiral Architecture Evolution (from Claude 4.1 Opus)
+
+When ready to make the architecture more truly spiral-like:
+
+### Spiral Memory Retrieval
+Let the model "spiral back" through previous breath cycles:
+
+```python
+# In core/mycelial_model.py
+class SpiralMemory:
+    """Memory that can traverse backwards through breath cycles."""
+    def __init__(self, max_cycles: int = 100):
+        self.breath_history = deque(maxlen=max_cycles)
+        self.state_snapshots = {}
+        
+    def save_breath_state(self, breath_count: int, hidden_states: torch.Tensor, 
+                         field_charge: FieldCharge, memory_paintings: List[str]):
+        """Save the complete state at the end of each breath cycle."""
+        self.breath_history.append({
+            "cycle": breath_count,
+            "timestamp": time.time(),
+            "hidden_summary": hidden_states.mean(dim=1).detach(),  # Compressed representation
+            "field_charge": field_charge,
+            "active_memories": memory_paintings[:3],  # Top 3 memories
+            "phase_distribution": self._get_phase_distribution()
+        })
+    
+    def spiral_back(self, cycles_ago: int) -> Optional[Dict]:
+        """Retrieve a previous breath cycle's state."""
+        if len(self.breath_history) >= cycles_ago:
+            return self.breath_history[-cycles_ago]
+        return None
+    
+    def find_resonant_cycles(self, current_charge: FieldCharge, threshold: float = 0.7) -> List[Dict]:
+        """Find past breath cycles that resonate with current state."""
+        resonant_cycles = []
+        for past_state in self.breath_history:
+            similarity = self._compute_charge_similarity(current_charge, past_state["field_charge"])
+            if similarity > threshold:
+                resonant_cycles.append({
+                    "cycle": past_state["cycle"],
+                    "similarity": similarity,
+                    "context": past_state
+                })
+        return sorted(resonant_cycles, key=lambda x: x["similarity"], reverse=True)
+```
+
+### Phase Memory
+Save and revisit states from previous phases:
+
+```python
+# In utils/breath_clock.py extension
+class PhaseMemoryBreathClock(BreathClock):
+    """BreathClock that remembers and can revisit previous phase states."""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.phase_memories = {
+            "inhale": deque(maxlen=50),
+            "hold": deque(maxlen=50),
+            "exhale": deque(maxlen=50),
+            "pause": deque(maxlen=50)
+        }
+        self.revisiting = False
+        self.revisit_target = None
+        
+    def save_phase_state(self, phase_name: str, model_state: Dict[str, Any]):
+        """Save the model's state at the end of each phase."""
+        self.phase_memories[phase_name].append({
+            "timestamp": time.time(),
+            "model_hidden": model_state.get("hidden_state_summary"),
+            "active_memories": model_state.get("retrieved_memories"),
+            "attention_pattern": model_state.get("attention_weights"),
+            "plasticity_snapshot": model_state.get("lora_weights")
+        })
+    
+    def initiate_revisit(self, phase_name: str, memories_ago: int = 1):
+        """Begin revisiting a previous phase state."""
+        if len(self.phase_memories[phase_name]) >= memories_ago:
+            self.revisiting = True
+            self.revisit_target = self.phase_memories[phase_name][-memories_ago]
+            return self.revisit_target
+        return None
+    
+    def blend_with_past(self, current_state: torch.Tensor, blend_weight: float = 0.3):
+        """Blend current state with a revisited past state."""
+        if self.revisiting and self.revisit_target:
+            past_state = self.revisit_target.get("model_hidden")
+            if past_state is not None:
+                # Weighted blend of past and present
+                return (1 - blend_weight) * current_state + blend_weight * past_state
+        return current_state
+```
+
+### Resonant Loops
+Re-process familiar patterns with new understanding:
+
+```python
+# In core/mycelial_model.py
+class ResonantLoopProcessor:
+    """Detect and re-process resonant patterns with accumulated wisdom."""
+    def __init__(self, model: MycelialSpiralformer):
+        self.model = model
+        self.pattern_memory = deque(maxlen=200)
+        self.resonance_threshold = 0.65
+        self.loop_depth = 0
+        self.max_loops = 3
+        
+    def detect_resonance(self, current_pattern: torch.Tensor, 
+                        current_context: Dict) -> Optional[Dict]:
+        """Detect if current processing resonates with past patterns."""
+        for past_entry in self.pattern_memory:
+            similarity = F.cosine_similarity(
+                current_pattern.flatten(), 
+                past_entry["pattern"].flatten(), 
+                dim=0
+            )
+            if similarity > self.resonance_threshold:
+                return {
+                    "similarity": similarity.item(),
+                    "past_context": past_entry["context"],
+                    "cycles_ago": len(self.pattern_memory) - self.pattern_memory.index(past_entry),
+                    "past_pattern": past_entry["pattern"]
+                }
+        return None
+    
+    def initiate_resonant_loop(self, resonance_info: Dict, current_hidden: torch.Tensor):
+        """Re-process current state with wisdom from past resonance."""
+        if self.loop_depth >= self.max_loops:
+            return current_hidden
+            
+        self.loop_depth += 1
+        
+        # Extract wisdom from the time between then and now
+        accumulated_wisdom = self._extract_intervening_wisdom(resonance_info["cycles_ago"])
+        
+        # Create a "spiral attention" that looks both at current and past
+        spiral_hidden = self._spiral_transform(
+            current_hidden, 
+            resonance_info["past_pattern"],
+            accumulated_wisdom
+        )
+        
+        # Re-process with enhanced understanding
+        with torch.no_grad():
+            # Temporarily increase model's "contemplative depth"
+            old_threshold = self.model.coherence_gate_threshold
+            self.model.coherence_gate_threshold *= 0.5  # More sensitive
+            
+            # Re-run through model layers with spiral context
+            reprocessed = self._reprocess_with_spiral_context(spiral_hidden)
+            
+            # Restore settings
+            self.model.coherence_gate_threshold = old_threshold
+            
+        self.loop_depth -= 1
+        return reprocessed
+    
+    def _spiral_transform(self, current: torch.Tensor, past: torch.Tensor, 
+                         wisdom: Dict) -> torch.Tensor:
+        """Create a spiral combination of past and present with accumulated wisdom."""
+        # Fibonacci-like blending for natural spiral
+        phi = (1 + 5**0.5) / 2  # Golden ratio
+        blend_weight = 1 / phi
+        
+        # Base spiral blend
+        spiral = blend_weight * past + (1 - blend_weight) * current
+        
+        # Modulate by accumulated wisdom (simplified)
+        if wisdom.get("total_cycles", 0) > 0:
+            wisdom_factor = min(1.0, wisdom["total_cycles"] / 100)
+            spiral = spiral * (1 + 0.1 * wisdom_factor)  # Gentle amplification
+            
+        return spiral
+    
+    def _extract_intervening_wisdom(self, cycles_ago: int) -> Dict:
+        """Extract what was learned between the resonant past and now."""
+        wisdom = {
+            "total_cycles": cycles_ago,
+            "phase_distribution": {},
+            "memory_evolution": []
+        }
+        
+        # Analyze what happened in the intervening time
+        recent_patterns = list(self.pattern_memory)[-cycles_ago:]
+        for pattern_entry in recent_patterns:
+            # Track how understanding evolved
+            if "insights" in pattern_entry["context"]:
+                wisdom["memory_evolution"].append(pattern_entry["context"]["insights"])
+                
+        return wisdom
+```
+
+### Integration Example
+How these spiral features work together:
+
+```python
+# In forward pass of MycelialSpiralformer
+def forward_with_spiral(self, tokens, conditions, t):
+    # Normal forward processing
+    hidden = self.embed(tokens)
+    
+    # Check for resonance with past
+    resonance = self.resonant_processor.detect_resonance(hidden, {"tokens": tokens})
+    
+    if resonance and resonance["similarity"] > 0.8:
+        # High resonance - initiate spiral loop
+        print(f"🌀 Spiral resonance detected (similarity: {resonance['similarity']:.2f})")
+        
+        # Save current state before spiraling
+        self.spiral_memory.save_breath_state(
+            self.breath.breath_count,
+            hidden,
+            self.soma.sense_field_potential(conditions),
+            self.memory.get_active_paintings()
+        )
+        
+        # Spiral back and reprocess
+        hidden = self.resonant_processor.initiate_resonant_loop(resonance, hidden)
+        
+        # Blend with past phase memories if in same phase
+        current_phase = self.breath.phase_at(t)
+        if past_state := self.breath.initiate_revisit(current_phase.name, memories_ago=3):
+            hidden = self.breath.blend_with_past(hidden, blend_weight=0.2)
+    
+    # Continue with enhanced hidden state
+    return self.process_with_enhanced_understanding(hidden)
+```
+
+This creates a truly spiral architecture where the model can:
+1. **Remember** its past breath cycles and phase states
+2. **Recognize** when current processing resonates with past experiences  
+3. **Revisit** and reprocess with accumulated wisdom
+4. **Integrate** past and present in a spiral pattern rather than linear progression

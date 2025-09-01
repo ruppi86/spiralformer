@@ -10,6 +10,7 @@ from core.dynamic_mask import build_glyph_conditioned_mask
 from spiralbase import TowerMemory
 from core.soma import Soma, FieldCharge
 from utils.glyph_codec import GlyphCodec
+from utils.lora import attach_lora, LoRAManager, PlasticityScheduler
 from utils.coherence import CoherenceResonator
 
 class MycelialSpiralformer(nn.Module):
@@ -19,7 +20,7 @@ class MycelialSpiralformer(nn.Module):
     its internal state and responses to be influenced by the simulated ecosystem.
     """
 
-    def __init__(self, d_model=128, n_heads=4, seq_len=32, num_layers=4, vocab_size=68, condition_dim=5, padding_idx=0):
+    def __init__(self, d_model=128, n_heads=4, seq_len=32, num_layers=4, vocab_size=68, condition_dim=5, padding_idx=0, lora_config: Optional[Dict] = None):
         super().__init__()
         self.seq_len = seq_len
         self.embed = nn.Embedding(vocab_size, d_model, padding_idx=padding_idx)
@@ -55,7 +56,28 @@ class MycelialSpiralformer(nn.Module):
         self.coherence_gate_threshold: float = 0.25
         self.memory_query_probability: float = 0.35
 
+        # --- LoRA integration (optional) ---
+        self._lora_enabled = False
+        self.lora_config: Dict = lora_config or {}
+        # Provide safe defaults if enabled without full config
+        if self.lora_config.get("enabled", False):
+            self._lora_enabled = True
+            self.lora_config.setdefault("max_rank", 4)
+            self.lora_config.setdefault("target_substrings", ["attn.out_proj", "ff."])
+            self.lora_config.setdefault("breath_rank_map", {"inhale": 8, "hold": 4, "exhale": 2, "pause": 0})
+            # Inject adapters across attention out_proj and feed-forward linears
+            self._apply_lora_adapters()
+            self._lora_manager = LoRAManager(self)
+            self._plasticity = PlasticityScheduler(self.lora_config["breath_rank_map"])
+            # Observability of plasticity over time (for probes)
+            self.last_plasticity_phase_name: str = "unknown"
+            self.last_plasticity_rank: int = int(self.lora_config["breath_rank_map"].get("pause", 0))
+            self.plasticity_log: List[Dict[str, float]] = []  # entries: {"t": t, "phase": str, "rank": int}
+
     def forward(self, tokens: torch.Tensor, conditions: torch.Tensor, t: float, text_input: Optional[str] = None):
+        # Synchronize LoRA plasticity with breath phase
+        if getattr(self, "_lora_enabled", False):
+            self.synchronize_plasticity(t)
         # 1. The Soma feels the environment first
         field_charge = self.soma.sense_field_potential(self._tensor_to_dict(conditions))
         # Step coherence resonator; store last value
@@ -96,6 +118,29 @@ class MycelialSpiralformer(nn.Module):
         
         self.last_hidden_state = x.detach() # Store the final hidden state
         return self.out(x)
+
+    # --- LoRA helpers ---
+    def _apply_lora_adapters(self) -> None:
+        target_substrings = self.lora_config.get("target_substrings", ["attn.out_proj", "ff."])
+        # Attach to this model; names include paths like "layers.0.attn.out_proj", "layers.0.ff.0", "layers.0.ff.2"
+        attach_lora(self, target_substrings=tuple(target_substrings), r=int(self.lora_config.get("max_rank", 4)))
+
+    def synchronize_plasticity(self, t: float):
+        phase = self.breath.phase_at(t)
+        rank = self._plasticity.rank_for_phase(phase.name)
+        self._lora_manager.set_rank_all(rank)
+        # Record for probes/debugging
+        if getattr(self, "_lora_enabled", False):
+            self.last_plasticity_phase_name = phase.name
+            self.last_plasticity_rank = int(rank)
+            # Keep a short rolling log (cap length to avoid unbounded growth)
+            try:
+                self.plasticity_log.append({"t": float(t), "phase": phase.name, "rank": int(rank)})
+                if len(self.plasticity_log) > 256:
+                    self.plasticity_log = self.plasticity_log[-256:]
+            except Exception:
+                pass
+        return phase.name, rank
     
     def _tokens_to_text(self, tokens: torch.Tensor) -> str:
         """A conceptual placeholder to convert token IDs to a text query."""

@@ -49,13 +49,16 @@ def probe_mind(model_path: str, params: Dict, model_config_name: str, memory_fil
     state_cpu = torch.load(model_path, map_location='cpu', weights_only=True)
     ckpt_vs = _ckpt_vocab_size(state_cpu)
     vocab_size = ckpt_vs if ckpt_vs > 0 else shared.get('vocab_size', len(codec.symbol_to_id))
+    # Enable LoRA if configured (uses shared fallback)
+    lora_cfg = model_params.get('lora', params.get('shared', {}).get('lora', {}))
     model = MycelialSpiralformer(
         vocab_size=vocab_size,
         seq_len=model_params['seq_len'],
         d_model=model_params['d_model'],
         n_heads=model_params['n_heads'],
         num_layers=model_params['num_layers'],
-        condition_dim=model_params['condition_dim']
+        condition_dim=model_params['condition_dim'],
+        lora_config=lora_cfg
     )
     model.load_state_dict(state_cpu, strict=False)
     
@@ -163,6 +166,15 @@ def probe_mind(model_path: str, params: Dict, model_config_name: str, memory_fil
         # Generate a response
         sequence_ids, sequence_glyphs = generator.generate_sequence(conditions_tensor, text_prompt=text_prompt)
 
+        # Plasticity observability: capture last phase/rank and a short timeline
+        plasticity_obs = {}
+        if getattr(model, '_lora_enabled', False):
+            plasticity_obs = {
+                "last_phase": getattr(model, 'last_plasticity_phase_name', 'n/a'),
+                "last_rank": getattr(model, 'last_plasticity_rank', -1),
+                "recent_events": list(getattr(model, 'plasticity_log', [])[-8:]),
+            }
+
         # --- Contemplative Analysis & Stat Collection ---
         print("\n  Contemplative Analysis:")
         
@@ -237,7 +249,8 @@ def probe_mind(model_path: str, params: Dict, model_config_name: str, memory_fil
             "breath_to_query_ratio": f"{query_ratio:.2f}",
             "retrieved_paintings": retrieved_paintings_str,
             "internal_mood": mood_glyph,
-            "uncertainty_silences": generator.uncertainty_silence_count # Requires adding a counter to the generator
+            "uncertainty_silences": generator.uncertainty_silence_count,
+            "plasticity": plasticity_obs,
         }
         generator.reset_uncertainty_counter() # Requires adding this method
 
@@ -275,6 +288,19 @@ def save_probe_report(results: Dict[str, Any]):
             f.write(f"| --- | --- |\n")
             f.write(f"| Breath-to-Query Ratio | {data['breath_to_query_ratio']} |\n")
             f.write(f"| Memory Retrieval | {data['retrieved_paintings']} |\n")
+
+            # Plasticity block
+            plast = data.get('plasticity', {}) or {}
+            if plast:
+                f.write(f"| LoRA Enabled | Yes |\n")
+                f.write(f"| Plasticity: Last Phase | {plast.get('last_phase', 'n/a')} |\n")
+                f.write(f"| Plasticity: Last Rank | {plast.get('last_rank', 'n/a')} |\n")
+                events = plast.get('recent_events', [])
+                if events:
+                    ev_str = ", ".join([f"{int(e.get('rank', -1))}@{e.get('phase', '?')}" for e in events])
+                    f.write(f"| Plasticity: Recent Events | {ev_str} |\n")
+                else:
+                    f.write(f"| Plasticity: Recent Events | none |\n")
             
             top_glyphs = ", ".join([f"`{g}` ({c})" for g, c in data['glyph_frequency']])
             f.write(f"| Top 5 Glyphs | {top_glyphs or 'N/A'} |\n\n")

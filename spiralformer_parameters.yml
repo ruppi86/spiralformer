@@ -16,6 +16,18 @@ shared:
       max_painters: 15
       humidity: 0.5
 
+  # LoRA defaults (can be overridden per model)
+  lora:
+    enabled: false
+    max_rank: 4
+    alpha: 1.0
+    target_substrings: ["attn.out_proj", "ff."]
+    breath_rank_map:
+      inhale: 8
+      hold: 4
+      exhale: 2
+      pause: 0
+
 # --- Model Configurations ---
 models:
   femto_mycelial:
@@ -123,6 +135,18 @@ models:
     save_paths:
       model_dir: "experiments/mycelial_training/models/cpu_piko"
       latest_model: "piko_mycelial_spiralformer_cpu.pt" 
+
+    # Enable LoRA for this config
+    lora:
+      enabled: true
+      max_rank: 4
+      alpha: 1.0
+      target_substrings: ["attn.out_proj", "ff."]
+      breath_rank_map:
+        inhale: 8
+        hold: 4
+        exhale: 2
+        pause: 0
 
   piko_long_train_cpu:
     description: "Piko-scale (~580k params) Mycelial Spiralformer for a long, deep CPU training session."
