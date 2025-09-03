@@ -85,7 +85,7 @@ Before the transformer blocks begin their main processing, the `Soma` acts as a 
 
 ### 4.3. `TowerMemory`: Resonance-Based Long-Term Memory
 
-The `TowerMemory` is a concrete, open-source implementation of the `Spiralbase` philosophy. It acts as the model's long-term, living memory, existing outside the transformer's finite context window and practicing the art of "composting" experience into wisdom.
+The `TowerMemory` is a concrete, open-source implementation of the **Spiralbase™** philosophy. It acts as the model's long-term, living memory, existing outside the transformer's finite context window and practicing the art of "composting" experience into wisdom.
 
 -   **Function:** `TowerMemory` stores significant experiences as "paintings"—data objects that contain not just content but also the `creation_charge` (the `FieldCharge` from the `Soma`) present at the moment of their creation.
 -   **Resonance-Based Awakening:** This is the core mechanism for weaving memory into the present. During the contemplative `hold` phase of the `BreathClock`, the `_MycelialSpiralBlock` calls the `tower_memory.retrieve_by_field_charge()` method. This function compares the `current_charge` of the situation with the `creation_charge` of every painting in its memory.
@@ -124,23 +124,23 @@ An architecture designed for wisdom requires methods of generation and evaluatio
     -   **Breath-to-Query Ratio:** Measures how often the model queries its `TowerMemory` during its `hold` phases. A higher ratio suggests a more reflective temperament, as the model spends more of its contemplative time consulting its past experiences.
     -   **Holistic Response:** Analyzes the diversity of glyph categories in a response, indicating whether the model is providing a nuanced, multi-faceted answer or a narrow, single-domain one.
 
-## 7. On-the-Fly Learning: Towards a Truly Living Architecture (Prototype Implemented)
+## 7. On-the-Fly Learning: Towards a Truly Living Architecture
 
 The architecture above now includes a minimal but working path for breath-synchronized online learning. The core network remains a stable, frozen wisdom-core; adaptation happens through phase-gated LoRA adapters that breathe with the model.
 
--  **A Stable Core, A Plastic Sheath (implemented):** Base weights are frozen while small, trainable LoRA matrices act as a thin, plastic layer. See `utils/lora.py` for `LoRALinear`, safe attachment, parameter freezing/selection, and a `LoRAManager` with `PlasticityScheduler`.
+-  **A Stable Core, A Plastic Sheath:** Base weights are frozen while small, trainable LoRA matrices act as a thin, plastic layer. See `utils/lora.py` for `LoRALinear`, safe attachment, parameter freezing/selection, and a `LoRAManager` with `PlasticityScheduler`.
 
--  **Breath-Synchronized Plasticity (implemented):** At each forward call, `core/mycelial_model.py` synchronizes LoRA rank with the current `BreathClock` phase (e.g., inhale→8, hold→4, exhale→2, pause→0). The model records `last_plasticity_phase_name`, `last_plasticity_rank`, and a rolling `plasticity_log` to make plasticity observable during probes.
+-  **Breath-Synchronized Plasticity:** At each forward call, `core/mycelial_model.py` synchronizes LoRA rank with the current `BreathClock` phase (e.g., inhale→8, hold→4, exhale→2, pause→0). The model records `last_plasticity_phase_name`, `last_plasticity_rank`, and a rolling `plasticity_log` to make plasticity observable during probes.
 
--  **Rhythmic, Conditional Learning (implemented):** Online learning is rare, intentional, and only occurs during `inhale`:
+-  **Rhythmic, Conditional Learning:** Online learning is rare, intentional, and only occurs during `inhale`:
    -  A `LearningTrigger` (entropy and memory-query heuristics) decides if an interaction is resonant enough to learn from.
    -  The `OnlineLearner` performs a single backprop step on LoRA parameters only, clipped and phase-gated. See `experiments/online_learning/online_learner.py`.
 
--  **Training/Optimization Path (implemented):** When LoRA is enabled in the YAML config, the unified trainer optimizes only LoRA parameters. See `experiments/unified_training/train.py`.
+-  **Training/Optimization Path:** When LoRA is enabled in the YAML config, the unified trainer optimizes only LoRA parameters. See `experiments/unified_training/train.py`.
 
--  **Operational Visibility in Probes (implemented):** The probe (`tools/probe_contemplative_mind.py`) now passes LoRA config to the model and logs plasticity in reports (last phase/rank and recent phase→rank events). This documents how plasticity breathes across scenarios.
+-  **Operational Visibility in Probes:** The probe (`tools/probe_contemplative_mind.py`) now passes LoRA config to the model and logs plasticity in reports (last phase/rank and recent phase→rank events). This documents how plasticity breathes across scenarios.
 
--  **Demo Scenario (implemented):** `experiments/online_learning/demo.py` synthesizes a resonant event, nudges time to `inhale`, and performs a single LoRA update. It prints the loss and the logits delta to illustrate a minimal, safe adaptation.
+-  **Demo Scenario:** `experiments/online_learning/demo.py` synthesizes a resonant event, nudges time to `inhale`, and performs a single LoRA update. It prints the loss and the logits delta to illustrate a minimal, safe adaptation.
 
 Behaviorally, this prototype realizes the contemplative principles:
 

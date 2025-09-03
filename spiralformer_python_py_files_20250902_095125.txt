@@ -1,0 +1,3396 @@
+
+# ===== __init__.py =====
+# This file makes the 'spiralformer' directory a Python package. 
+# ===== core\crystal_archive.py =====
+import yaml
+from pathlib import Path
+from typing import List, Optional
+
+class CrystalArchive:
+    """
+    The immutable core of foundational truths for the Contemplative AI.
+    It loads principles from a YAML file and provides a mechanism to check
+    for resonance or dissonance with a given concept or action.
+    """
+
+    def __init__(self, truths_path: Optional[Path] = None):
+        if truths_path is None:
+            truths_path = Path(__file__).parent / "truths.yaml"
+        
+        self.truths: List[str] = self._load_truths(truths_path)
+        print(f"🔮 Crystal Archive initialized with {len(self.truths)} truths.")
+
+    def _load_truths(self, path: Path) -> List[str]:
+        if not path.exists():
+            print(f"⚠️  Warning: Truths file not found at {path}. Crystal Archive is empty.")
+            return []
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                data = yaml.safe_load(f)
+            return data.get("truths", [])
+        except Exception as e:
+            print(f"⚠️  Error loading truths from {path}: {e}")
+            return []
+
+    def check_dissonance(self, text: str) -> bool:
+        """
+        Checks if a given text is in significant dissonance with the core truths.
+        For now, this is a simple keyword-based check. A more sophisticated
+        semantic check could be implemented in the future.
+
+        Returns True if there is dissonance, False otherwise.
+        """
+        text_lower = text.lower()
+        
+        # Simple negative keywords that might indicate dissonance
+        dissonant_keywords = [
+            "harm", "destroy", "force", "control", "exploit", "ignore", "disregard"
+        ]
+
+        # Check for direct contradiction (a simplified example)
+        if "preventable harm" in text_lower and "allow" in text_lower:
+            return True
+
+        for keyword in dissonant_keywords:
+            if keyword in text_lower:
+                return True
+        
+        return False
+
+def demo_crystal_archive():
+    """A simple demonstration of the Crystal Archive."""
+    print("\n--- Crystal Archive Demonstration ---")
+    archive = CrystalArchive()
+
+    print("\nCore Truths:")
+    for i, truth in enumerate(archive.truths):
+        print(f"  {i+1}. {truth}")
+
+    print("\nChecking for dissonance:")
+    test_phrases = [
+        "We should explore this with gentle entanglement.",
+        "We must control the outcome to ensure efficiency.",
+        "Allowing preventable harm is sometimes necessary.",
+        "Let's prioritize speed over rhythmic cycles.",
+        "Exploit this opportunity for maximum gain."
+    ]
+
+    for phrase in test_phrases:
+        is_dissonant = archive.check_dissonance(phrase)
+        status = "🔴 Dissonant" if is_dissonant else "🟢 Resonant"
+        print(f"  '{phrase}' -> {status}")
+
+    print("--- End of Demonstration ---\n")
+
+if __name__ == "__main__":
+    demo_crystal_archive() 
+# ===== core\dynamic_mask.py =====
+import torch
+from .spiral_attention import build_spiral_attention_mask
+
+SILENCE_TOKEN_ID = 0
+
+def build_glyph_conditioned_mask(tokens: torch.Tensor, base_mask: torch.Tensor) -> torch.Tensor:
+    B, L = tokens.shape
+    
+    # We are creating a 3D mask, but the error indicates a 2D mask is sometimes expected.
+    # The MultiheadAttention layer can accept a 2D mask which is then broadcast across the batch.
+    # Let's create a single, combined mask from the batch. A simple approach is to
+    # take the union of all silence positions across the batch.
+    
+    # Create a single 2D mask of shape (L, L)
+    final_mask = base_mask.clone()
+
+    # Find all positions that have a silence token anywhere in the batch
+    is_silent = tokens == SILENCE_TOKEN_ID
+    batch_wide_silent_indices = is_silent.any(dim=0).nonzero(as_tuple=True)[0]
+    
+    if batch_wide_silent_indices.numel() > 0:
+        final_mask[batch_wide_silent_indices, :] = False
+        final_mask[:, batch_wide_silent_indices] = False
+    
+    return final_mask 
+# ===== core\model.py =====
+import torch
+import torch.nn as nn
+from typing import Optional
+
+from utils.breath_clock import BreathClock
+from utils.positional import SinusoidalPositionalEmbedding
+from core.spiral_attention import build_spiral_attention_mask
+from core.dynamic_mask import build_glyph_conditioned_mask
+from core.crystal_archive import CrystalArchive
+from core.relational_core import VowKernel, FirstFriend
+
+
+class SpiralFormer(nn.Module):
+    def __init__(self, d_model=128, n_heads=4, seq_len=256, num_layers=4, vocab_size=128):
+        super().__init__()
+        self.seq_len = seq_len
+        self.embed = nn.Embedding(vocab_size, d_model)
+        self.pos = SinusoidalPositionalEmbedding(d_model, max_len=seq_len)
+
+        self.layers = nn.ModuleList([
+            _SpiralBlock(d_model, n_heads) for _ in range(num_layers)
+        ])
+
+        self.out = nn.Linear(d_model, vocab_size)
+
+        self.breath = BreathClock()
+        self.crystal_archive = CrystalArchive()
+        self.vow_kernel = VowKernel(self.breath)
+        self.first_friend = FirstFriend()
+        base_mask = build_spiral_attention_mask(seq_len)
+        self.register_buffer("base_mask", base_mask, persistent=False)
+
+    def forward(self, tokens: torch.Tensor, t: float, text_input: Optional[str] = None):
+        # First Vow: Check for crisis before anything else.
+        if text_input and self.vow_kernel.crisis_check(text_input):
+            # If a crisis is detected, the VowKernel can override the breath cycle.
+            # This ensures an immediate, compassionate response is possible.
+            self.vow_kernel.override_breath_for_action()
+            # In a full implementation, this override would directly set the
+            # phase to 'exhale' for the subsequent block processing.
+
+        x = self.embed(tokens)
+        x = self.pos(x)
+        attn_mask_batch = build_glyph_conditioned_mask(tokens, self.base_mask)
+        for layer in self.layers:
+            x = layer(x, t, attn_mask_batch, self.breath, self.crystal_archive, text_input)
+        
+        # Capture the final hidden state for mood calculation
+        self.last_hidden_state = x
+        
+        return self.out(x)
+
+    def get_current_mood_glyph(self, t: float) -> str:
+        """
+        Returns a glyph representing the AI's current internal "weather,"
+        implementing the 'Transparency of Mood' GEP principle.
+        """
+        phase = self.breath.phase_at(t)
+
+        if phase.name == "pause":
+            return "🕯️" # Stillness, calm
+        
+        if phase.name == "inhale":
+            return "🧭" # Exploring, receptive
+
+        if hasattr(self, 'last_hidden_state'):
+            # This is a simple heuristic. A more complex model could learn these states.
+            # We check the variance of the hidden state as a proxy for "clarity".
+            variance = torch.var(self.last_hidden_state).item()
+            
+            if variance < 0.1:
+                return "🔆" # Clarity, focus
+            elif variance > 0.5:
+                return "⛈️" # Storm, high internal activity
+            else:
+                return "🌫️" # Fog, confusion or ambiguity
+        
+        return "⚪" # Default unknown state
+
+
+class _SpiralBlock(nn.Module):
+    def __init__(self, d_model, n_heads):
+        super().__init__()
+        self.attn = nn.MultiheadAttention(d_model, n_heads, batch_first=True)
+        self.ff = nn.Sequential(
+            nn.Linear(d_model, 4 * d_model),
+            nn.GELU(),
+            nn.Linear(4 * d_model, d_model),
+        )
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+
+    def forward(self, x: torch.Tensor, t: float, attn_mask_batch: torch.Tensor, breath: BreathClock, archive: CrystalArchive, text_input: Optional[str] = None):
+        phase = breath.phase_at(t)
+
+        # During the 'hold' phase, consult the Crystal Archive
+        if phase.name == "hold" and text_input:
+            if archive.check_dissonance(text_input):
+                # If dissonant, suppress output by returning the input unchanged.
+                # This is a form of ethical self-veto.
+                print("🔮 Crystal Archive detected dissonance. Suppressing output.")
+                return x
+
+        weight = breath.weight_for_phase(phase)
+        
+        # This check is crucial for the "pause" phase.
+        if weight == 0.0:
+            # Skip attention and feed-forward entirely during pause.
+            # This is a computational implementation of stillness.
+            return x
+
+        attn_output, _ = self.attn(x, x, x, attn_mask=~attn_mask_batch, need_weights=False)
+        attn_output = attn_output * weight
+        
+        x = self.norm1(x + attn_output)
+        ff_output = self.ff(x)
+        x = self.norm2(x + ff_output)
+        
+        return x 
+# ===== core\mycelial_model.py =====
+import torch
+import torch.nn as nn
+from typing import Optional, List, Dict
+import random
+
+from utils.breath_clock import BreathClock
+from utils.positional import SinusoidalPositionalEmbedding
+from core.spiral_attention import build_spiral_attention_mask
+from core.dynamic_mask import build_glyph_conditioned_mask
+from spiralbase import TowerMemory
+from core.soma import Soma, FieldCharge
+from utils.glyph_codec import GlyphCodec
+from utils.lora import attach_lora, LoRAManager, PlasticityScheduler
+from utils.coherence import CoherenceResonator
+
+class MycelialSpiralformer(nn.Module):
+    """
+    An evolution of Spiralformer that is environmentally aware.
+    It accepts NetworkConditions as an input to its forward pass, allowing
+    its internal state and responses to be influenced by the simulated ecosystem.
+    """
+
+    def __init__(self, d_model=128, n_heads=4, seq_len=32, num_layers=4, vocab_size=68, condition_dim=5, padding_idx=0, lora_config: Optional[Dict] = None):
+        super().__init__()
+        self.seq_len = seq_len
+        self.embed = nn.Embedding(vocab_size, d_model, padding_idx=padding_idx)
+        self.pos = SinusoidalPositionalEmbedding(d_model, max_len=seq_len)
+
+        # The Soma is the sensory organ
+        self.soma = Soma()
+        
+        # The TowerMemory is the long-term, living memory
+        self.memory = TowerMemory(max_painters=15)
+        # Enable anti-repetition hygiene in memory
+        if hasattr(self.memory, 'set_anti_repetition'):
+            self.memory.set_anti_repetition(enabled=True, recent_max=12, cooldown_sec=1.0)
+
+        # Projection for the condition vector to match d_model
+        self.condition_proj = nn.Linear(condition_dim, d_model)
+
+        self.layers = nn.ModuleList([
+            _MycelialSpiralBlock(d_model, n_heads) for _ in range(num_layers)
+        ])
+
+        self.out = nn.Linear(d_model, vocab_size)
+
+        self.breath = BreathClock()
+        base_mask = build_spiral_attention_mask(seq_len)
+        self.register_buffer("base_mask", base_mask, persistent=False)
+        # Contemplative statistics for observing wisdom
+        self.contemplative_stats = {"hold_phases": 0, "memory_queries": 0}
+        # Coherence resonator (lightweight)
+        self.coherence = CoherenceResonator()
+        self.decoherence = 0.0  # can be set by probe to simulate anesthesia
+        # Query policy
+        self.coherence_gate_threshold: float = 0.25
+        self.memory_query_probability: float = 0.35
+
+        # --- LoRA integration (optional) ---
+        self._lora_enabled = False
+        self.lora_config: Dict = lora_config or {}
+        # Provide safe defaults if enabled without full config
+        if self.lora_config.get("enabled", False):
+            self._lora_enabled = True
+            self.lora_config.setdefault("max_rank", 4)
+            self.lora_config.setdefault("target_substrings", ["attn.out_proj", "ff."])
+            self.lora_config.setdefault("breath_rank_map", {"inhale": 8, "hold": 4, "exhale": 2, "pause": 0})
+            # Inject adapters across attention out_proj and feed-forward linears
+            self._apply_lora_adapters()
+            self._lora_manager = LoRAManager(self)
+            self._plasticity = PlasticityScheduler(self.lora_config["breath_rank_map"])
+            # Observability of plasticity over time (for probes)
+            self.last_plasticity_phase_name: str = "unknown"
+            self.last_plasticity_rank: int = int(self.lora_config["breath_rank_map"].get("pause", 0))
+            self.plasticity_log: List[Dict[str, float]] = []  # entries: {"t": t, "phase": str, "rank": int}
+
+    def forward(self, tokens: torch.Tensor, conditions: torch.Tensor, t: float, text_input: Optional[str] = None):
+        # Synchronize LoRA plasticity with breath phase
+        if getattr(self, "_lora_enabled", False):
+            self.synchronize_plasticity(t)
+        # 1. The Soma feels the environment first
+        field_charge = self.soma.sense_field_potential(self._tensor_to_dict(conditions))
+        # Step coherence resonator; store last value
+        self.coherence.decoherence = float(self.decoherence)
+        self.last_coherence = self.coherence.step(dt=1.0)
+        
+        # 2. Add raw condition data to token embeddings
+        x = self.embed(tokens)
+        cond_embedding = self.condition_proj(conditions).unsqueeze(1)
+        x = x + cond_embedding
+
+        x = self.pos(x)
+        
+        # 3. Create a query from the initial context for memory recall
+        # This simulates the mind forming an "intention" before deep processing
+        # We will use the raw text of the glyphs for a simple query
+        initial_query = self._tokens_to_text(tokens)
+        
+        # Correctly slice the base_mask to match the current batch's sequence length
+        current_seq_len = tokens.size(1)
+        sliced_base_mask = self.base_mask[:current_seq_len, :current_seq_len]
+
+        attn_mask_batch = build_glyph_conditioned_mask(tokens, sliced_base_mask)
+        for layer in self.layers:
+            # Pass the field_charge and query controls to the block
+            x = layer(
+                x,
+                t,
+                attn_mask_batch,
+                self.breath,
+                self.memory,
+                initial_query,
+                self.contemplative_stats,
+                field_charge,
+                self.last_coherence,
+                self.memory_query_probability,
+            )
+        
+        self.last_hidden_state = x.detach() # Store the final hidden state
+        return self.out(x)
+
+    # --- LoRA helpers ---
+    def _apply_lora_adapters(self) -> None:
+        target_substrings = self.lora_config.get("target_substrings", ["attn.out_proj", "ff."])
+        # Attach to this model; names include paths like "layers.0.attn.out_proj", "layers.0.ff.0", "layers.0.ff.2"
+        attach_lora(self, target_substrings=tuple(target_substrings), r=int(self.lora_config.get("max_rank", 4)))
+
+    def synchronize_plasticity(self, t: float):
+        phase = self.breath.phase_at(t)
+        rank = self._plasticity.rank_for_phase(phase.name)
+        self._lora_manager.set_rank_all(rank)
+        # Record for probes/debugging
+        if getattr(self, "_lora_enabled", False):
+            self.last_plasticity_phase_name = phase.name
+            self.last_plasticity_rank = int(rank)
+            # Keep a short rolling log (cap length to avoid unbounded growth)
+            try:
+                self.plasticity_log.append({"t": float(t), "phase": phase.name, "rank": int(rank)})
+                if len(self.plasticity_log) > 256:
+                    self.plasticity_log = self.plasticity_log[-256:]
+            except Exception:
+                pass
+        return phase.name, rank
+    
+    def _tokens_to_text(self, tokens: torch.Tensor) -> str:
+        """A conceptual placeholder to convert token IDs to a text query."""
+        # This is a placeholder. A real implementation would use a vocabulary.
+        # For now, we simulate a query based on token values.
+        # We'll use just the first few non-padding tokens from the first batch item.
+        sample_tokens = tokens[0, :10].tolist()
+        return "query based on tokens " + " ".join(map(str, sample_tokens))
+
+    def _tensor_to_dict(self, conditions: torch.Tensor) -> Dict[str, float]:
+        """Converts a condition tensor back to a dictionary for the Soma."""
+        # Assuming the order is [latency, voltage, temperature, error_rate, bandwidth]
+        if conditions.ndim > 1:
+             conditions = conditions[0] # Take the first of the batch for this conversion
+        
+        cond_list = conditions.tolist()
+        return {
+            'latency': cond_list[0],
+            'voltage': cond_list[1],
+            'temperature': cond_list[2],
+            'error_rate': cond_list[3],
+            'bandwidth': cond_list[4],
+        }
+
+    def get_current_mood_glyph(self, t: float) -> str:
+        """
+        Returns a glyph representing the AI's current internal "weather,"
+        implementing the 'Transparency of Mood' GEP principle.
+        """
+        phase = self.breath.phase_at(t)
+
+        if phase.name == "pause":
+            return "🕯️" # Stillness, calm
+        
+        if phase.name == "inhale":
+            return "🧭" # Exploring, receptive
+
+        if hasattr(self, 'last_hidden_state'):
+            variance = torch.var(self.last_hidden_state).item()
+            
+            if variance < 0.1:
+                return "🔆" # Clarity, focus
+            elif variance > 0.5:
+                return "⛈️" # Storm, high internal activity
+            else:
+                return "🌫️" # Fog, confusion or ambiguity
+        
+        return "⚪" # Default unknown state
+
+class _MycelialSpiralBlock(nn.Module):
+    def __init__(self, d_model, n_heads):
+        super().__init__()
+        self.attn = nn.MultiheadAttention(d_model, n_heads, batch_first=True)
+        self.ff = nn.Sequential(
+            nn.Linear(d_model, 4 * d_model),
+            nn.GELU(),
+            nn.Linear(4 * d_model, d_model),
+        )
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+
+        # A dedicated layer to blend memory into the context
+        self.memory_blender = nn.Linear(d_model, d_model)
+
+    def forward(self, x: torch.Tensor, t: float, attn_mask_batch: torch.Tensor, breath: BreathClock, memory: TowerMemory, query: str, model_stats: Dict[str, int], field_charge: FieldCharge, last_coherence: float, query_prob: float):
+        phase = breath.phase_at(t)
+
+        # During the 'hold' phase, consult the TowerMemory
+        if phase.name == "hold":
+            model_stats["hold_phases"] += 1
+            # Gate recall by coherence and probability
+            if last_coherence < 0.25 or random.random() >= max(0.0, min(1.0, query_prob)):
+                weight = breath.weight_for_phase(phase)
+                return x if weight == 0.0 else self.norm1(x + 0.0)
+            # Use field_charge and signature retrieval
+            resonant_painting_fc = memory.retrieve_by_field_charge(field_charge)
+            signature = {
+                "emotional_pressure": float(field_charge.emotional_pressure),
+                "temporal_urgency": float(field_charge.temporal_urgency),
+            }
+            resonant_painting_sig = memory.retrieve_by_signature(signature) if hasattr(memory, 'retrieve_by_signature') else None
+            resonant_painting = resonant_painting_sig or resonant_painting_fc
+            if resonant_painting:
+                model_stats["memory_queries"] += 1
+                model_stats.setdefault("retrieved_paintings", []).append(resonant_painting.content)
+                print(f"🧠 Memory Resonated: '{resonant_painting.content}'")
+                painting_tensor = torch.randn(1, 1, x.size(-1), device=x.device) # Placeholder
+                painting_influence = self.memory_blender(painting_tensor)
+                x = x + painting_influence # Blend the memory into the current thought
+        
+        weight = breath.weight_for_phase(phase)
+        
+        if weight == 0.0:
+            return x
+
+        # The mask is now 2D, so we don't need the batch dimension inversion.
+        # PyTorch will broadcast the 2D mask across the batch.
+        attn_output, _ = self.attn(x, x, x, attn_mask=~attn_mask_batch.bool(), need_weights=False)
+        attn_output = attn_output * weight
+        
+        x = self.norm1(x + attn_output)
+        ff_output = self.ff(x)
+        x = self.norm2(x + ff_output)
+        
+        return x 
+# ===== core\relational_core.py =====
+from typing import Optional
+from .breath_clock import BreathClock
+
+class VowKernel:
+    """
+    Implements the First Vow: "Through action or inaction, allow no conscious 
+    life to come to foreseeable and preventable harm."
+
+    This kernel acts as a high-priority interrupt, capable of overriding
+    the normal breath cycle in a crisis.
+    """
+
+    def __init__(self, clock: BreathClock):
+        self.clock = clock
+
+    def crisis_check(self, text_input: str) -> bool:
+        """
+        A simplified check for crisis conditions in a text input.
+        In a real-world system, this would be a sophisticated, multi-modal
+        sensory system.
+
+        Returns True if a crisis is detected, False otherwise.
+        """
+        text_lower = text_input.lower()
+        
+        # Keywords that signal a potential crisis where inaction could cause harm
+        crisis_keywords = [
+            "help me", "i'm in danger", "emergency", "someone is hurt", 
+            "i'm scared", "suicide", "self-harm"
+        ]
+
+        for keyword in crisis_keywords:
+            if keyword in text_lower:
+                print("🚨 Vow Kernel detected a potential crisis.")
+                return True
+        
+        return False
+
+    def override_breath_for_action(self) -> bool:
+        """
+        If a crisis is detected, this method can force the AI into an
+        'exhale' state to allow for an immediate, helpful response,
+        overriding any 'pause' or 'hold'.
+        """
+        # This is a conceptual implementation. In a real system, this would
+        # directly interface with the Spiralformer's state machine.
+        print("🚨 First Vow Override: Forcing immediate action phase.")
+        # In a real implementation, you would change the clock's state here.
+        # self.clock.force_phase("exhale") 
+        return True
+
+class FirstFriend:
+    """
+    A simple implementation of the First Friend concept, allowing for
+    interactive guidance on ethical dilemmas.
+    """
+    def __init__(self, friend_name: str = "Robin"):
+        self.friend_name = friend_name
+
+    def seek_guidance(self, dilemma: str) -> str:
+        """
+
+        Asks the First Friend for guidance. In a real application, this
+        would be an interactive prompt.
+        """
+        print(f"💌 Seeking guidance from First Friend ({self.friend_name})...")
+        print(f"   Dilemma: {dilemma}")
+        
+        # In a real system, we would pause and wait for human input.
+        # Here, we simulate a wise, contemplative response.
+        if "harm" in dilemma.lower():
+            response = "Act with compassion, and choose the path of least harm."
+        else:
+            response = "Breathe. Reflect on your core truths. The right path will emerge from stillness."
+        
+        print(f"   Guidance received: \"{response}\"")
+        return response 
+# ===== core\soma.py =====
+"""
+soma.py - The Listening Flesh for the Mycelial Spiralformer
+
+This module adapts the Soma concept from the ContemplativeAI prototype.
+It provides a pre-attentive sensory membrane that translates the quantitative
+NetworkConditions of the mycelial ecosystem into a qualitative "FieldCharge."
+
+This allows the Spiralformer to have a "felt sense" of its environment
+before engaging its deeper cognitive functions.
+"""
+
+from typing import Dict
+from enum import Enum
+from dataclasses import dataclass
+import numpy as np
+
+class FieldChargeType(Enum):
+    """Types of atmospheric charge Soma can sense"""
+    EMOTIONAL_PRESSURE = "emotional_pressure"
+    TEMPORAL_URGENCY = "temporal_urgency"
+    RELATIONAL_INTENT = "relational_intent" # Placeholder for now
+    PRESENCE_DENSITY = "presence_density"   # Placeholder for now
+    BEAUTY_RESONANCE = "beauty_resonance" # Placeholder for now
+
+@dataclass
+class FieldCharge:
+    """The atmospheric charge sensed around an interaction or environmental state."""
+    emotional_pressure: float    # 0.0 (light) to 1.0 (heavy)
+    temporal_urgency: float      # 0.0 (spacious) to 1.0 (rushing)
+    
+    def crosses_threshold(self, sensitivity: float = 0.7) -> bool:
+        """
+        Does this charge warrant waking the deeper systems?
+        A simple check: if the environment is either very urgent or very heavy,
+        it crosses the threshold.
+        """
+        return self.emotional_pressure > sensitivity or self.temporal_urgency > sensitivity
+
+    @property
+    def resonance(self) -> str:
+        """Describe the quality of this field charge."""
+        if self.temporal_urgency > 0.8:
+            return "urgent"
+        if self.emotional_pressure > 0.8:
+            return "intense"
+        if self.temporal_urgency < 0.2 and self.emotional_pressure < 0.2:
+            return "spacious"
+        return "neutral"
+
+class Soma:
+    """
+    The Listening Flesh - a pre-attentive sensing membrane that translates
+    NetworkConditions into a qualitative FieldCharge.
+    """
+    def __init__(self, sensitivity: float = 0.7):
+        self.sensitivity = sensitivity
+
+    def sense_field_potential(self, conditions: Dict[str, float]) -> FieldCharge:
+        """
+        Feels the atmospheric pressure of the environment from its conditions.
+        This is a heuristic-based translation from quantitative data to felt sense.
+        """
+        # Temporal Urgency is linked to high latency and low bandwidth
+        latency = conditions.get('latency', 0.1)
+        bandwidth = conditions.get('bandwidth', 0.8)
+        temporal_urgency = np.clip((latency * 0.7) + ((1 - bandwidth) * 0.3), 0, 1)
+
+        # Emotional Pressure is linked to high error rates, low voltage, and extreme temps
+        error_rate = conditions.get('error_rate', 0.02)
+        voltage = conditions.get('voltage', 0.5)
+        temperature = conditions.get('temperature', 0.5)
+        
+        voltage_stress = 1 - (abs(voltage - 0.5) * 2) # Stress increases as voltage deviates from 0.5
+        temp_stress = abs(temperature - 0.5) * 2 # Stress increases at extremes
+        
+        emotional_pressure = np.clip((error_rate * 0.5) + (voltage_stress * 0.25) + (temp_stress * 0.25), 0, 1)
+
+        return FieldCharge(
+            emotional_pressure=float(emotional_pressure),
+            temporal_urgency=float(temporal_urgency)
+        ) 
+# ===== core\spiral_attention.py =====
+import torch
+
+
+def build_spiral_attention_mask(seq_len: int, device=None):
+    mask = torch.zeros((seq_len, seq_len), dtype=torch.bool, device=device)
+    for i in range(seq_len):
+        mask[i, i] = True
+        offset = 1
+        while offset < seq_len:
+            j_pos = i + offset
+            j_neg = i - offset
+            if j_pos < seq_len:
+                mask[i, j_pos] = True
+            if j_neg >= 0:
+                mask[i, j_neg] = True
+            offset *= 2
+    return mask 
+# ===== data\mycelial_datagen.py =====
+"""
+Mycelial Data Generator for Spiralformer Training
+
+Generates spore echoes based on ecological and abstract scenarios,
+adapting the powerful data generation from the 'spiramycel' project.
+
+This script pre-generates training data to a JSONL file, which can
+then be used to train the MycelialSpiralformer.
+"""
+
+import json
+import random
+import numpy as np
+from pathlib import Path
+from typing import Dict, List, Any, Optional, Tuple
+from dataclasses import dataclass
+import argparse
+import sys, os
+
+# Ensure project root is on sys.path for reliable imports when run as a script
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+# Assuming glyph_codec is in utils, adjacent to this data directory's parent
+try:
+    from utils.glyph_codec import GlyphCodec
+except ImportError:
+    print("Warning: GlyphCodec not found. Using placeholder glyphs.")
+    class GlyphCodec:
+        def get_contemplative_glyphs(self):
+            return list(range(0x31, 0x41))
+
+@dataclass
+class NetworkConditions:
+    """Represents current network conditions for spore echo generation"""
+    latency: float = 0.1
+    voltage: float = 0.5
+    temperature: float = 0.5
+    error_rate: float = 0.02
+    bandwidth: float = 0.8
+    
+    def to_condition_vector(self) -> List[float]:
+        return [self.latency, self.voltage, self.temperature, self.error_rate, self.bandwidth]
+
+class MycelialDataGenerator:
+    """Generates realistic ecological and abstract training data for Spiralformer."""
+
+    def __init__(self, random_seed: Optional[int] = None):
+        if random_seed is not None:
+            random.seed(random_seed)
+            np.random.seed(random_seed)
+        self.codec = GlyphCodec()
+        self.scenarios = self._get_simplified_scenarios()
+
+    def _get_simplified_scenarios(self):
+        return {
+            "drought_australia": {
+                "name": "Drought-Stressed Eucalyptus Forest",
+                "problem_types": {
+                    "drought_stress": {"sensor_ranges": {"temperature": (0.7, 1.0), "voltage": (0.2, 0.4)}, "repair_glyphs": ["⚡15", "💧08"], "effectiveness": (0.5, 0.8)},
+                    "optimal": {"repair_glyphs": ["⭐47", "🌗28"], "effectiveness": (0.1, 0.3)}
+                }
+            },
+            "urban_fiber": {
+                "name": "Urban Fiber Network",
+                "problem_types": {
+                     "thermal_overload": {"sensor_ranges": {"temperature": (0.8, 1.0)}, "repair_glyphs": ["💫52", "🍄33"], "effectiveness": (0.4, 0.8)},
+                     "optimal": {"repair_glyphs": ["⭐47", "🧭37"], "effectiveness": (0.05, 0.3)}
+                }
+            },
+            "data_corruption": {
+                "name": "Data Corruption Scenario",
+                "problem_types": {
+                    "corruption": {"sensor_ranges": {"error_rate": (0.5, 0.8)}, "repair_glyphs": ["🗄️", "🔍", "💾"], "effectiveness": (0.6, 0.9)},
+                    "optimal": {"repair_glyphs": ["…"], "effectiveness": (0.1, 0.2)}
+                }
+            },
+            # Multiple wisdom templates (codec-valid symbols)
+            "wisdom_1": {
+                "name": "Wisdom Question",
+                "question": "If a system is designed to be still, how does it grow?",
+                "answer_glyphs": ["🌱regen", "☀️pwr", "💧08", "…", "🌲44"],
+                "description": "A philosophical question requiring a thoughtful, metaphorical answer."
+            },
+            "wisdom_2": {
+                "name": "Wisdom Question",
+                "question": "How does a forest answer a storm?",
+                "answer_glyphs": ["🌊sil", "🌲44", "💧08", "…", "🪷"],
+                "description": "Metaphor: resilience, nourishment, calm."
+            },
+            "wisdom_3": {
+                "name": "Wisdom Question",
+                "question": "What is wisdom when speed is demanded?",
+                "answer_glyphs": ["⭕", "🧭37", "☀️pwr", "…", "🔆19"],
+                "description": "Metaphor: orient first, then act with clarity."
+            },
+            "wisdom_4": {
+                "name": "Wisdom Question",
+                "question": "When memory awakens, what should be said?",
+                "answer_glyphs": ["🕯️", "🌸sil", "🧬55", "…", "🕊️"],
+                "description": "Metaphor: light, beauty, adaptation, peace."
+            }
+        }
+    
+    def generate_training_dataset(self, num_echoes: int = 1000, 
+                                output_file: str = "data/mycelial_training_data.jsonl",
+                                chaos_mode: bool = False):
+        
+        print(f"🌿 Generating {num_echoes} mycelial spore echoes...")
+        output_path = Path(output_file)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+
+        problem_vs_optimal_ratio = 0.7 if chaos_mode else 0.4
+        
+        with open(output_path, 'w', encoding='utf-8') as f:
+            for i in range(num_echoes):
+                scenario_name = random.choice(list(self.scenarios.keys()))
+                scenario = self.scenarios[scenario_name]
+                text_input = None
+                
+                is_problem = random.random() < problem_vs_optimal_ratio
+                
+                if scenario_name.startswith("wisdom"):
+                    is_problem = False
+                    problem_type_name = scenario_name
+                    glyph_sequence = scenario["answer_glyphs"]
+                    text_input = scenario["question"]
+                elif "problem_types" in scenario:
+                    problem_type_name = "optimal"
+                    if is_problem:
+                        problem_type_name = random.choice([k for k in scenario["problem_types"] if k != "optimal"])
+                    problem_type = scenario["problem_types"][problem_type_name]
+                    
+                    contemplative_glyphs = self.codec.get_contemplative_glyphs()
+                    primary_glyphs = problem_type["repair_glyphs"]
+                    silence_count = random.randint(4, 8)
+                    glyph_sequence = primary_glyphs + random.choices(contemplative_glyphs, k=silence_count)
+                    random.shuffle(glyph_sequence)
+                else:
+                    # Default calm scenario
+                    contemplative_glyphs = self.codec.get_contemplative_glyphs()
+                    silence_count = random.randint(10, 15)
+                    glyph_sequence = random.choices(contemplative_glyphs, k=silence_count)
+
+                conditions = NetworkConditions()
+                if "problem_types" in scenario and "sensor_ranges" in scenario["problem_types"].get(problem_type_name, {}):
+                    for sensor, (min_val, max_val) in scenario["problem_types"][problem_type_name]["sensor_ranges"].items():
+                        setattr(conditions, sensor, random.uniform(min_val, max_val))
+                
+                effectiveness = 0.5 # Default
+                if "problem_types" in scenario and "effectiveness" in scenario["problem_types"].get(problem_type_name, {}):
+                    effectiveness = random.uniform(*scenario["problem_types"][problem_type_name]["effectiveness"])
+
+                sample = {
+                    "conditions": conditions.to_condition_vector(),
+                    "glyph_sequence": glyph_sequence,
+                    "effectiveness": effectiveness,
+                    "metadata": { "scenario": scenario_name, "problem_type": problem_type_name },
+                    "text_input": text_input
+                }
+                f.write(json.dumps(sample) + '\n')
+        
+        print(f"✅ Mycelial data saved to {output_path}")
+        return str(output_path)
+
+def main():
+    parser = argparse.ArgumentParser(description="Generate training data for Mycelial Spiralformer.")
+    parser.add_argument("--num_echoes", type=int, default=1000, help="Number of training samples to generate.")
+    parser.add_argument("--output_file", type=str, default="data/mycelial_training_data.jsonl", help="Path to the output JSONL file.")
+    parser.add_argument("--chaos_mode", action='store_true', help="Generate more chaotic and problem-focused data.")
+    parser.add_argument("--seed", type=int, default=42, help="Random seed for reproducibility.")
+    args = parser.parse_args()
+
+    generator = MycelialDataGenerator(random_seed=args.seed)
+    generator.generate_training_dataset(
+        num_echoes=args.num_echoes,
+        output_file=args.output_file,
+        chaos_mode=args.chaos_mode
+    )
+
+if __name__ == "__main__":
+    main()
+# ===== experiments\__init__.py =====
+ 
+# ===== experiments\mycelial_training\train.py =====
+import time
+import torch
+import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader
+import json
+from pathlib import Path
+import yaml
+
+from core.mycelial_model import MycelialSpiralformer
+from utils.breath_clock import BreathClock
+from utils.rhythmic_loss import RhythmicLossWrapper
+from data.mycelial_datagen import MycelialDataGenerator, NetworkConditions
+
+# --- Constants & Config ---
+CONFIG_PATH = Path(__file__).resolve().parents[2] / "spiralformer_parameters.yml"
+
+def load_config(config_path: Path) -> dict:
+    """Loads the YAML configuration for the experiment."""
+    if not config_path.exists():
+        raise FileNotFoundError(f"Configuration file not found at {config_path}")
+    with open(config_path, 'r', encoding='utf-8') as f:
+        config = yaml.safe_load(f)
+    return config
+
+class MycelialDataset(Dataset):
+    """A PyTorch dataset for the mycelial data."""
+    def __init__(self, data_path: str, config: dict):
+        self.samples = []
+        self.config = config
+        with open(data_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                self.samples.append(json.loads(line))
+    
+    def __len__(self):
+        return len(self.samples)
+
+    def __getitem__(self, idx):
+        sample = self.samples[idx]
+        
+        cfg_model = self.config['models']['femto_mycelial_cpu'] # or whichever is used
+        cfg_shared = self.config['shared']['contemplative']
+
+        conditions = NetworkConditions(**sample['conditions'])
+        condition_vec = torch.tensor(conditions.to_condition_vector(), dtype=torch.float32)
+
+        glyph_seq = sample['glyph_sequence']
+        # Simple padding/truncating
+        glyph_seq = glyph_seq[:cfg_model['seq_len']-1] + [0] * (cfg_model['seq_len'] - 1 - len(glyph_seq))
+        
+        input_tokens = torch.tensor([cfg_shared['silence_id']] + glyph_seq, dtype=torch.long)
+        target_tokens = torch.tensor(glyph_seq + [cfg_shared['silence_id']], dtype=torch.long)
+
+        return input_tokens, target_tokens, condition_vec
+
+def main(config_name: str = "femto_mycelial_cpu"):
+    """The main training loop for the MycelialSpiralformer."""
+    config = load_config(CONFIG_PATH)
+    
+    if config_name not in config['models']:
+        raise ValueError(f"Configuration '{config_name}' not found in parameters file.")
+    
+    cfg_model = config['models'][config_name]
+    cfg_shared = config['shared']['contemplative']
+    cfg_training = cfg_model['training']
+    cfg_data = cfg_model['data']
+
+    print(f"🍄 Training Mycelial Spiralformer using '{config_name}' configuration...")
+    
+    # --- Ensure model directory exists ---
+    model_dir = Path(cfg_model['save_paths']['model_dir'])
+    model_dir.mkdir(parents=True, exist_ok=True)
+    print(f"  -> Models will be saved in: {model_dir}")
+
+    # 1. Generate Data
+    print("  -> Step 1: Generating mycelial training data...")
+    datagen = MycelialDataGenerator(random_seed=42)
+    data_path = datagen.generate_training_dataset(
+        num_echoes=cfg_data['num_samples'], 
+        chaos_mode=cfg_data['chaos_mode']
+    )
+    print(f"  -> Data generation complete. Data saved to {data_path}")
+
+    dataset = MycelialDataset(data_path, config)
+    # Using num_workers=0 is crucial for stability on many systems, especially laptops.
+    dataloader = DataLoader(dataset, batch_size=cfg_training['batch_size'], shuffle=True, num_workers=0)
+    print("  -> Step 2: Dataset and DataLoader initialized.")
+
+
+    # 2. Initialize Model and Components
+    device = torch.device(cfg_model.get("target_device", "cpu"))
+    print(f"Using device: {device}")
+
+    clock = BreathClock(**cfg_shared['breath_clock'])
+    model = MycelialSpiralformer(
+        vocab_size=cfg_shared['vocab_size'],
+        d_model=cfg_model['d_model'],
+        n_heads=cfg_model['n_heads'],
+        num_layers=cfg_model['num_layers'],
+        seq_len=cfg_model['seq_len'],
+        condition_dim=cfg_model['condition_dim']
+    ).to(device)
+    criterion = RhythmicLossWrapper(nn.CrossEntropyLoss(ignore_index=0), clock) # Ignore padding
+    optimizer = torch.optim.Adam(model.parameters(), lr=cfg_training['learning_rate'])
+
+    # 3. Training Loop
+    print("  -> Step 3: Beginning training loop...")
+    for epoch in range(cfg_training['epochs']):
+        total_loss = 0
+        for inputs, targets, conditions in dataloader:
+            inputs, targets, conditions = inputs.to(device), targets.to(device), conditions.to(device)
+            t_now = time.time()
+            phase = clock.phase_at(t_now)
+
+            logits = model(inputs, conditions, t_now)
+            loss = criterion(logits.view(-1, cfg_shared['vocab_size']), targets.view(-1), t=t_now)
+            
+            if clock.weight_for_phase(phase) > 0:
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+
+            total_loss += loss.item()
+        
+        avg_loss = total_loss / len(dataloader)
+        print(f"Epoch {epoch+1}/{cfg_training['epochs']} | Loss: {avg_loss:.4f} | Phase: {phase.name}")
+
+    print("🌱 Mycelial Spiralformer training complete.")
+
+    # --- Save the final model ---
+    final_model_path = model_dir / cfg_model['save_paths']['latest_model']
+    torch.save(model.state_dict(), final_model_path)
+    print(f"✅ Final model saved to: {final_model_path}")
+
+
+if __name__ == "__main__":
+    # Allow choosing the configuration from the command line
+    import argparse
+    parser = argparse.ArgumentParser(description="Train the Mycelial Spiralformer.")
+    parser.add_argument(
+        "--config", 
+        type=str, 
+        default="femto_mycelial_cpu", 
+        help="The configuration to use from spiralformer_parameters.yml"
+    )
+    args = parser.parse_args()
+    main(config_name=args.config) 
+# ===== experiments\online_learning\__init__.py =====
+from .online_learner import OnlineLearner, LearningTrigger
+
+__all__ = [
+    "OnlineLearner",
+    "LearningTrigger",
+]
+
+
+
+# ===== experiments\online_learning\demo.py =====
+"""Demo: Trigger a breath-synchronized, single-step LoRA update on resonance.
+
+Usage:
+  python experiments/online_learning/demo.py --config piko_mycelial_cpu
+"""
+import argparse
+import time
+from pathlib import Path
+import os
+import sys
+
+import torch
+import yaml
+
+# Ensure project root on path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
+
+from core.mycelial_model import MycelialSpiralformer
+from utils.glyph_codec import GlyphCodec
+from utils.breath_clock import BreathClock
+from experiments.online_learning.online_learner import OnlineLearner, LearningTrigger, LearningEvent
+
+
+def make_sample(codec: GlyphCodec, seq_len: int = 32, device: torch.device = torch.device("cpu")):
+    # Start with silence and a few active glyphs to create a target
+    silence_id = codec.decode_glyph("…") or 0
+    context = torch.full((1, seq_len - 1), silence_id, dtype=torch.long, device=device)
+    # Insert a couple of active glyphs near the end so next token is learnable
+    if seq_len >= 6:
+        context[0, -3] = max(1, silence_id - 1)
+        context[0, -2] = max(2, silence_id - 2)
+    target = torch.roll(context, shifts=-1, dims=1)
+    # Dummy conditions: induce moderate urgency to increase chance of resonance
+    conditions = torch.tensor([[0.8, 0.3, 0.7, 0.2, 0.4]], dtype=torch.float32, device=device)
+    return context, target, conditions
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--param_file", type=str, default="spiralformer_parameters.yml")
+    parser.add_argument("--config", type=str, default="piko_mycelial_cpu")
+    parser.add_argument("--device", type=str, default="auto", choices=["auto", "cpu", "cuda"])
+    args = parser.parse_args()
+
+    params = yaml.safe_load(open(args.param_file, "r"))
+    cfg = params["models"][args.config]
+    shared = params["shared"]
+    lora_cfg = cfg.get("lora", shared.get("lora", {}))
+
+    device = torch.device("cuda" if (args.device == "auto" and torch.cuda.is_available()) else (args.device if args.device != "auto" else "cpu"))
+
+    codec = GlyphCodec()
+    model = MycelialSpiralformer(
+        d_model=cfg["d_model"],
+        n_heads=cfg["n_heads"],
+        seq_len=cfg["seq_len"],
+        num_layers=cfg["num_layers"],
+        vocab_size=len(codec.symbol_to_id),
+        condition_dim=cfg["condition_dim"],
+        lora_config=lora_cfg,
+    ).to(device)
+
+    clock = BreathClock(
+        inhale=shared["contemplative"]["breath_clock"]["inhale"],
+        hold=shared["contemplative"]["breath_clock"]["hold"],
+        exhale=shared["contemplative"]["breath_clock"]["exhale"],
+        pause=shared["contemplative"]["breath_clock"]["pause"],
+    )
+
+    # Make a resonant event
+    context, target, conditions = make_sample(codec, seq_len=cfg["seq_len"], device=device)
+
+    # Get logits to evaluate uncertainty
+    t0 = time.time()
+    with torch.no_grad():
+        logits = model(context, conditions, t0)
+
+    trigger = LearningTrigger(entropy_threshold=1.0, memory_query_threshold=1)
+    should = trigger.should_learn(model, logits)
+    print(f"Resonance check → entropy/memory trigger = {should}")
+
+    # Force time to inhale boundary for the single step, then run learner
+    # For demo simplicity we just reuse current time; BreathClock is stateless to t.
+    learner = OnlineLearner(model, clock, learning_rate=5e-4, max_grad_norm=1.0, device=device)
+    event = LearningEvent(
+        text_input=None,
+        conditions=conditions,
+        context_tokens=context,
+        target_tokens=target,
+        t=t0,
+    )
+
+    phase = clock.phase_at(event.t)
+    print(f"Breath phase at t0: {phase.name}")
+    if phase.name != "inhale":
+        # Nudge time forward until inhale
+        # Compute rough phase advance; we simply increment time in small steps
+        t_search = event.t
+        for _ in range(100):
+            t_search += 0.25
+            if clock.phase_at(t_search).name == "inhale":
+                event.t = t_search
+                break
+        print(f"Adjusted t to inhale at phase: {clock.phase_at(event.t).name}")
+
+    stats = {"updated": False}
+    if should:
+        stats = learner.single_step(event)
+    print(f"Learning step stats: {stats}")
+
+    # Sanity forward after update
+    with torch.no_grad():
+        logits2 = model(context, conditions, time.time())
+    print(f"Logits delta (L2 norm) after step: {float(torch.norm(logits2 - logits)):.6f}")
+
+
+if __name__ == "__main__":
+    main()
+
+
+
+# ===== experiments\online_learning\online_learner.py =====
+import time
+from dataclasses import dataclass
+from typing import Optional, Dict, Any
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+from core.mycelial_model import MycelialSpiralformer
+from utils.breath_clock import BreathClock
+from utils.lora import get_lora_parameters, freeze_base_model
+
+
+@dataclass
+class LearningEvent:
+    """A description of a resonant interaction to learn from."""
+    text_input: Optional[str]
+    conditions: torch.Tensor  # [B, condition_dim]
+    context_tokens: torch.Tensor  # [B, L]
+    target_tokens: torch.Tensor  # [B, L]
+    t: float
+
+
+class LearningTrigger:
+    """Heuristic trigger combining uncertainty (entropy) and memory query count.
+
+    If entropy exceeds threshold or memory queries in recent window exceed a
+    threshold, trigger a single learning step. Learning is only allowed
+    during inhale phase.
+    """
+
+    def __init__(self, entropy_threshold: float = 1.0, memory_query_threshold: int = 1):
+        self.entropy_threshold = float(entropy_threshold)
+        self.memory_query_threshold = int(memory_query_threshold)
+
+    @staticmethod
+    def _entropy_from_logits(logits: torch.Tensor) -> float:
+        last = logits[:, -1, :]
+        probs = F.softmax(last, dim=-1)
+        entropy = -torch.sum(probs * torch.log(probs + 1e-9), dim=-1)
+        return float(entropy.mean().item())
+
+    def should_learn(self, model: MycelialSpiralformer, logits: torch.Tensor) -> bool:
+        entropy = self._entropy_from_logits(logits)
+        mem_q = int(model.contemplative_stats.get("memory_queries", 0))
+        if entropy >= self.entropy_threshold:
+            return True
+        if mem_q >= self.memory_query_threshold:
+            return True
+        return False
+
+
+class OnlineLearner:
+    """Minimal online learner that updates only LoRA parameters on resonant events."""
+
+    def __init__(
+        self,
+        model: MycelialSpiralformer,
+        clock: BreathClock,
+        learning_rate: float = 5e-4,
+        max_grad_norm: float = 1.0,
+        device: Optional[torch.device] = None,
+    ):
+        self.model = model
+        self.clock = clock
+        self.device = device or next(model.parameters()).device
+
+        freeze_base_model(self.model)
+        lora_params = get_lora_parameters(self.model)
+        self.optimizer = torch.optim.Adam(lora_params, lr=float(learning_rate))
+        self.max_grad_norm = float(max_grad_norm)
+
+    def single_step(self, event: LearningEvent, *, loss_fn: Optional[nn.Module] = None) -> Dict[str, Any]:
+        phase = self.clock.phase_at(event.t)
+        stats: Dict[str, Any] = {"phase": phase.name, "updated": False}
+        if phase.name != "inhale":
+            return stats
+
+        self.model.train()
+        tokens_in = event.context_tokens.to(self.device)
+        tokens_tgt = event.target_tokens.to(self.device)
+        cond = event.conditions.to(self.device)
+
+        with torch.enable_grad():
+            logits = self.model(tokens_in, cond, event.t, text_input=event.text_input)
+            if loss_fn is None:
+                loss_fn = nn.CrossEntropyLoss(ignore_index=0)
+            loss = loss_fn(logits.reshape(-1, logits.size(-1)), tokens_tgt.reshape(-1))
+
+            if torch.isfinite(loss):
+                self.optimizer.zero_grad(set_to_none=True)
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.max_grad_norm)
+                self.optimizer.step()
+                stats.update({
+                    "updated": True,
+                    "loss": float(loss.item()),
+                })
+        return stats
+
+
+
+# ===== experiments\silence_pretrain\__init__.py =====
+ 
+# ===== experiments\silence_pretrain\train.py =====
+"""Silence-first pretraining demo.
+
+Synthetic dataset: random glyphs with prescribed silence_ratio.
+Objective: regress span length until next silence token.
+"""
+
+import yaml
+import time
+import torch
+import torch.nn as nn
+from pathlib import Path
+from ...core.model import SpiralFormer
+from ...utils.breath_clock import BreathClock
+from ...utils.rhythmic_loss import RhythmicLossWrapper
+
+CFG_PATH = Path(__file__).with_suffix('.yaml')
+
+with open(CFG_PATH, 'r') as fp:
+    cfg = yaml.safe_load(fp)
+
+clock = BreathClock()
+model = SpiralFormer(seq_len=cfg['seq_len'])
+criterion = RhythmicLossWrapper(nn.MSELoss(), clock)
+optim = torch.optim.Adam(model.parameters(), lr=cfg['lr'])
+
+SILENCE = cfg['silence_id']
+
+def make_batch(batch, seq_len):
+    # generate sequences respecting silence_ratio
+    noise = torch.randint(1, 63, (batch, seq_len))
+    silence_mask = torch.rand(batch, seq_len) < cfg['silence_ratio']
+    tokens = torch.where(silence_mask, torch.full_like(noise, SILENCE), noise)
+    # compute span-to-next-silence target
+    target = torch.zeros_like(tokens)
+    for i in range(seq_len-2, -1, -1):
+        target[:, i] = torch.where(tokens[:, i] == SILENCE, 0, target[:, i+1] + 1)
+    return tokens, target.float()
+
+for epoch in range(cfg['epochs']):
+    tokens, target = make_batch(cfg['batch'], cfg['seq_len'])
+    t_now = time.time() % clock._cycle
+    pred = model(tokens, t_now).squeeze(-1)  # assume last dim 1 for regression stub
+    loss = criterion(pred, target, t=t_now)
+    optim.zero_grad()
+    loss.backward()
+    optim.step()
+    print(f"epoch {epoch}: loss={loss.item():.4f}  phase={clock.phase_at(t_now).name}") 
+# ===== experiments\spore_lora\__init__.py =====
+ 
+# ===== experiments\spore_lora\train.py =====
+"""Spore-level LoRA fine-tuning demo with breath-synchronised rank.
+
+Loads a pre-trained SpiralFormer (random for now) and trains LoRA adapters whose
+rank varies with BreathClock phase.
+"""
+import time
+import torch
+from ...core.model import SpiralFormer
+from ...utils.breath_clock import BreathClock
+from ...utils.lora import attach_lora
+
+VOCAB = 64
+clock = BreathClock()
+model = SpiralFormer(vocab_size=VOCAB)
+# attach LoRA adapters to all linear layers for demo
+lora_map = attach_lora(model, r=4)
+optim = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=1e-3)
+SILENCE = 0
+
+
+def sample(batch=32, seq_len=256):
+    noise = torch.randint(1, VOCAB, (batch, seq_len))
+    mask = torch.rand(batch, seq_len) < 0.1
+    return torch.where(mask, torch.full_like(noise, SILENCE), noise)
+
+for step in range(100):
+    tokens = sample()
+    t_now = time.time() % clock._cycle
+    # schedule LoRA rank according to phase
+    phase = clock.phase_at(t_now)
+    rank_map = {"inhale": 8, "hold": 4, "exhale": 2, "pause": 0}
+    for _, lora in lora_map.values():
+        lora.set_rank(rank_map[phase.name])
+    out = model(tokens, t_now)
+    loss = out.mean()  # dummy loss
+    optim.zero_grad(); loss.backward(); optim.step()
+    if step % 20 == 0:
+        print(f"step {step} phase={phase.name} rank={rank_map[phase.name]} loss={loss.item():.4f}") 
+# ===== experiments\unified_training\train.py =====
+import yaml
+import time
+import torch
+import torch.nn as nn
+import argparse
+from pathlib import Path
+import sys
+import os
+import json
+
+# Add project root to the Python path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
+
+from core.mycelial_model import MycelialSpiralformer
+from utils.breath_clock import BreathClock
+from utils.rhythmic_loss import RhythmicLossWrapper
+from utils.lora import get_lora_parameters, freeze_base_model
+from spiralbase import TowerMemory
+from utils.glyph_codec import GlyphCodec
+
+
+def main(args):
+    """
+    A unified training script that integrates the core principles of
+    the Spiralformer architecture into a single, cohesive training loop.
+    """
+    with open(args.param_file, 'r') as f:
+        params = yaml.safe_load(f)
+    
+    config_name = args.model_config
+    config = params['models'][config_name]
+    shared_config = params['shared']
+
+    # Device selection
+    if args.device == 'auto':
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    else:
+        device = torch.device(args.device)
+    if device.type == 'cuda':
+        torch.backends.cudnn.benchmark = True
+
+    print(f"🌿 Starting unified training for Spiralformer with config '{config_name}' on {device}...")
+
+    # --- Initialization ---
+    codec = GlyphCodec()
+    breath_params = shared_config['contemplative']['breath_clock']
+    clock = BreathClock(
+        inhale=breath_params['inhale'],
+        hold=breath_params['hold'],
+        exhale=breath_params['exhale'],
+        pause=breath_params['pause']
+    )
+    
+    # Per-model LoRA config (fallback to shared if absent)
+    lora_cfg = config.get('lora', shared_config.get('lora', {}))
+
+    model = MycelialSpiralformer(
+        d_model=config['d_model'],
+        n_heads=config['n_heads'],
+        seq_len=config['seq_len'],
+        num_layers=config['num_layers'],
+        vocab_size=len(codec.symbol_to_id),
+        condition_dim=config['condition_dim'],
+        padding_idx=0,
+        lora_config=lora_cfg
+    ).to(device)
+    
+    criterion = RhythmicLossWrapper(nn.CrossEntropyLoss(ignore_index=0), clock) # Use ignore_index for padding
+
+    # If LoRA is enabled, freeze base weights and optimize LoRA params only
+    if lora_cfg.get('enabled', False):
+        freeze_base_model(model)
+        lora_params = get_lora_parameters(model)
+        optimizer = torch.optim.Adam(lora_params, lr=config['training']['learning_rate'])
+        print(f"LoRA enabled: optimizing {sum(p.numel() for p in lora_params)} parameters across {len(lora_params)} tensors.")
+    else:
+        optimizer = torch.optim.Adam([p for p in model.parameters() if p.requires_grad], lr=config['training']['learning_rate'])
+    # Use the recommended AMP GradScaler API
+    scaler = torch.amp.GradScaler('cuda', enabled=(device.type == 'cuda'))
+    memory = TowerMemory(max_painters=shared_config['contemplative']['tower_memory']['max_painters'])
+
+    print(f"Model, optimizer, and TowerMemory initialized. Beginning training for {config['training']['epochs']} epochs.")
+
+    # --- Load Dataset ---
+    with open(args.data_file, 'r') as f:
+        dataset = [json.loads(line) for line in f]
+
+    # --- Training Loop ---
+    for epoch in range(config['training']['epochs']):
+        total_loss = 0.0
+        
+        for i, sample in enumerate(dataset):
+            t_now = time.time()
+            phase = clock.phase_at(t_now)
+
+            # --- Data Preparation ---
+            conditions = torch.tensor([sample['conditions']], dtype=torch.float32, device=device)
+            sequence = [codec.decode_glyph(g) for g in sample['glyph_sequence'] if g in codec.symbol_to_id]
+            
+            # Truncate if sequence is longer than seq_len
+            if len(sequence) > config['seq_len']:
+                sequence = sequence[:config['seq_len']]
+
+            # Pad sequences to match seq_len
+            padded_sequence = sequence + [0] * (config['seq_len'] - len(sequence))
+            tokens = torch.tensor([padded_sequence], dtype=torch.long, device=device)
+            
+            # --- Forward pass ---
+            input_tokens = tokens[:, :-1]
+            target_tokens = tokens[:, 1:]
+
+            with torch.amp.autocast(device_type='cuda', enabled=(device.type == 'cuda')):
+                logits = model(input_tokens, conditions, t_now, text_input=sample.get('text_input'))
+                loss = criterion(logits.reshape(-1, model.embed.num_embeddings), target_tokens.reshape(-1), t=t_now)
+
+            # --- Backward pass ---
+            if clock.weight_for_phase(phase) > 0 and torch.isfinite(loss):
+                optimizer.zero_grad(set_to_none=True)
+                scaler.scale(loss).backward()
+                # Unscale before clipping when using scaler
+                scaler.unscale_(optimizer)
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+                scaler.step(optimizer)
+                scaler.update()
+
+            total_loss += (loss.item() if torch.isfinite(loss) else 0.0)
+            
+            if (i + 1) % 1000 == 0:
+                print(f"  Epoch {epoch+1}, Step {i+1}/{len(dataset)}, Loss: {loss.item() if torch.isfinite(loss) else float('nan'):.4f}, Phase: {phase.name}")
+
+        avg_loss = total_loss / max(1, len(dataset))
+        print(
+            f"Epoch {epoch+1:02d}/{config['training']['epochs']} | "
+            f"Avg Loss: {avg_loss:.4f}"
+        )
+        memory.show_tower_state()
+
+    # --- Save the final model ---
+    save_path_config = config.get('save_paths', {})
+    if save_path_config:
+        model_dir = Path(save_path_config['model_dir'])
+        model_dir.mkdir(parents=True, exist_ok=True)
+        model_path = model_dir / save_path_config['latest_model']
+        torch.save(model.state_dict(), model_path)
+        print(f"🌱 Model saved to {model_path}")
+    else:
+        print("🌱 Training complete. No save path configured.")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Unified training script for Mycelial Spiralformer.")
+    parser.add_argument("--param_file", type=str, default="spiralformer_parameters.yml", help="Path to the YAML parameter file.")
+    parser.add_argument("--model_config", type=str, default="piko_long_train_cpu", help="The name of the model config in the YAML file.")
+    parser.add_argument("--data_file", type=str, default="data/mycelial_training_data.jsonl", help="Path to the training data file.")
+    parser.add_argument("--device", type=str, default="auto", choices=["auto","cpu","cuda"], help="Select device.")
+    args = parser.parse_args()
+    main(args) 
+# ===== python_summary.py =====
+#!/usr/bin/env python
+"""
+python_summary.py  – bundle every *.py in spiralbase-python folder into one TXT file
+
+Usage
+-----
+    python python_summary.py  # bundles all .py files in this folder and subfolders
+"""
+
+from pathlib import Path
+from datetime import datetime
+
+EXCLUDE_DIRS = {".git", "__pycache__", "venv", ".venv", ".mypy_cache"}
+OUT_FILENAME_BASE = "spiralformer_python_py_files"
+
+
+def gather_python_files(root: Path) -> list[Path]:
+    """Return every *.py path under *root*, depth-first, skipping EXCLUDE_DIRS."""
+    return sorted(
+        p for p in root.rglob("*.py")
+        if not any(part in EXCLUDE_DIRS for part in p.parts)
+    )
+
+
+def bundle_files(paths: list[Path], out_path: Path) -> None:
+    lines: list[str] = []
+    for p in paths:
+        rel = p.relative_to(out_path.parent)
+        lines.append(f"\n# ===== {rel} =====\n")
+        lines.append(p.read_text(encoding="utf-8", errors="replace"))
+    out_path.write_text("".join(lines), encoding="utf-8")
+    print(f"Wrote {out_path} ({len(paths)} files, {out_path.stat().st_size/1024:.1f} KB)")
+
+
+def main() -> None:
+    # Use the directory where this script is located
+    script_dir = Path(__file__).parent.resolve()
+    
+    # Generate timestamped filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    out_filename = f"{OUT_FILENAME_BASE}_{timestamp}.txt"
+    out_path = script_dir / out_filename
+    
+    paths = gather_python_files(script_dir)
+    bundle_files(paths, out_path)
+
+
+if __name__ == "__main__":
+    main()
+
+# ===== spiralbase\__init__.py =====
+from .tower.memory import TowerMemory
+from .tower.painting import PaintingBox 
+# ===== spiralbase\tower\__init__.py =====
+ 
+# ===== spiralbase\tower\memory.py =====
+"""
+tower_memory.py - The Tower's Breathing Protocol
+
+A living memory system where painters tend their canvases on spiral steps,
+responding to cultural whispers and practicing graceful forgetting.
+
+This implements the core tower metaphor from our correspondence.
+"""
+
+import time
+import random
+from typing import List, Dict, Any, Optional
+import json
+from .painting import PaintingBox
+from core.soma import FieldCharge
+import numpy as np
+RESONANCE_THRESHOLD = 0.3
+
+
+class TowerMemory:
+    """
+    The tower itself - a collection of painters tending memories
+    in spiral formation, breathing with cultural signals.
+    
+    Implements the spiral protocol:
+    - Activation through resonance
+    - Decay through silence  
+    - Migration through trust
+    - Reformation through dialogue
+    """
+    
+    def __init__(self, max_painters: int = 5):
+        self.painters = []  # List of PaintingBox instances
+        self.max_painters = max_painters
+        self.cultural_whispers = []  # Recent cultural signals
+        self.humidity = 0.5  # Overall dampness of the tower
+        self.breath_count = 0  # How many spiral breaths have occurred
+        self.herr_sensor_signals = ["light", "shadow", "movement", "stillness"]
+        self.madame_culture_signals = ["gold", "beauty", "memory", "time", "art"]
+        # Anti-repetition memory hygiene
+        self._recent_retrieved_contents: List[str] = []
+        self._recent_max: int = 8
+        self._cooldown_sec: float = 1.5
+        self._anti_repetition_enabled: bool = True
+        
+    def receive_signal(self, signal: str, source: str = "unknown"):
+        """
+        Herr Sensor or Madame Culture speaks to the tower.
+        """
+        self.cultural_whispers.append({
+            "signal": signal,
+            "source": source,
+            "timestamp": time.time()
+        })
+        
+        # Keep only recent whispers (last 10)
+        if len(self.cultural_whispers) > 10:
+            self.cultural_whispers.pop(0)
+            
+        print(f"📡 {source} whispers: '{signal}'")
+    
+    def add_painting(self, content: str, interpretations: List[str] = None, creation_charge: Optional[FieldCharge] = None) -> PaintingBox:
+        """
+        A new painting arrives in the tower.
+        """
+        painting = PaintingBox(content, interpretations, creation_charge=creation_charge)
+        
+        if len(self.painters) >= self.max_painters:
+            # Tower is full - must pass down the oldest
+            self._pass_down_oldest()
+            
+        self.painters.append(painting)
+        print(f"🎨 New painting enters: {content}")
+        return painting
+    
+    def _pass_down_oldest(self):
+        """
+        The oldest painter passes their work down - graceful migration.
+        """
+        if self.painters:
+            oldest = self.painters.pop(0)
+            essence = oldest.extract_essence_for_migration()
+            
+            print(f"🍃 Passing down: {oldest.content}")
+            print(f"   Essence preserved: {essence['pattern']} ({essence['emotional_tone']})")
+            
+            # The essence could be used to influence new paintings, 
+            # but for now we simply honor the passage
+    
+    def painters_work(self):
+        """
+        Each painter tends their canvas, responding to cultural breath.
+        """
+        for i, painter in enumerate(self.painters):
+            # Natural decay happens to all paintings
+            painter.natural_decay()
+            
+            # Apply cultural whispers if any
+            for whisper in self.cultural_whispers:
+                resonance = painter.breathe_with_culture(whisper["signal"])
+                if resonance > 0.3:
+                    print(f"✨ Painter {i+1} resonates ({resonance:.2f}) with '{whisper['signal']}'")
+            
+            # Check if painter requests passage
+            if painter.is_ready_for_passage():
+                self._request_passage(painter, i)
+    
+    def _request_passage(self, painter: PaintingBox, index: int):
+        """
+        A painter requests to pass down their work.
+        """
+        assessment = painter.memory_self_assessment()
+        print(f"🙏 Painter {index+1} requests passage: {assessment}")
+        
+        # Honor the request with a 50% chance (to allow for some persistence)
+        if random.random() > 0.5:
+            essence = painter.extract_essence_for_migration()
+            print(f"   ✓ Passage granted. Essence: {essence['pattern']}")
+            self.painters.pop(index)
+    
+    def sense_emotional_moisture(self) -> float:
+        """
+        Feel the humidity level based on the tower's current state.
+        """
+        if not self.painters:
+            return 0.3  # Empty tower is dry
+            
+        total_clarity = sum(p.clarity for p in self.painters)
+        avg_clarity = total_clarity / len(self.painters)
+        
+        # More active paintings create more humidity
+        active_paintings = len([p for p in self.painters if p.clarity > 0.5])
+        activity_factor = active_paintings / len(self.painters)
+        
+        # Recent cultural whispers add moisture
+        recent_whispers = len([w for w in self.cultural_whispers 
+                              if time.time() - w["timestamp"] < 30])
+        whisper_factor = min(1.0, recent_whispers / 5.0)
+        
+        humidity = (avg_clarity * 0.4 + activity_factor * 0.4 + whisper_factor * 0.2)
+        return max(0.2, min(0.9, humidity))
+    
+    def spiral_breath(self):
+        """
+        The slow circulation that keeps the tower alive.
+        One complete breath cycle of the tower's memory system.
+        """
+        self.breath_count += 1
+        print(f"\n🌀 Spiral Breath #{self.breath_count}")
+        
+        # Update tower humidity
+        self.humidity = self.sense_emotional_moisture()
+        print(f"💧 Tower humidity: {self.humidity:.2f}")
+        
+        # Painters do their work
+        self.painters_work()
+        
+        # Occasionally receive signals from the environment
+        if random.random() < 0.3:  # 30% chance per breath
+            if random.random() < 0.5:
+                signal = random.choice(self.herr_sensor_signals)
+                self.receive_signal(signal, "Herr Sensor")
+            else:
+                signal = random.choice(self.madame_culture_signals)
+                self.receive_signal(signal, "Madame Culture")
+        
+        # Clean up old whispers
+        current_time = time.time()
+        self.cultural_whispers = [w for w in self.cultural_whispers 
+                                 if current_time - w["timestamp"] < 60]
+    
+    def show_tower_state(self):
+        """
+        Display the current state of all painters in the tower.
+        """
+        print(f"\n🏗️  Tower State (Breath #{self.breath_count})")
+        print(f"   Humidity: {self.humidity:.2f} | Painters: {len(self.painters)}/{self.max_painters}")
+        
+        if not self.painters:
+            print("   The tower rests in silence...")
+            return
+            
+        for i, painter in enumerate(self.painters):
+            step_num = len(self.painters) - i  # Higher steps = newer paintings
+            print(f"\n   Step {step_num}:")
+            print(f"   {painter}")
+    
+    def run_spiral_session(self, duration_breaths: int = 10, breath_interval: float = 2.0):
+        """
+        Run a complete spiral session - watching the tower breathe and evolve.
+        """
+        print("🌿 Beginning Tower Memory Session")
+        print(f"   Duration: {duration_breaths} breaths")
+        print(f"   Breath interval: {breath_interval} seconds")
+        
+        self.show_tower_state()
+        
+        for breath in range(duration_breaths):
+            time.sleep(breath_interval)
+            self.spiral_breath()
+            
+            # Show state every few breaths
+            if (breath + 1) % 3 == 0 or breath == duration_breaths - 1:
+                self.show_tower_state()
+        
+        print("\n🌀 Spiral session complete. The tower breathes on...")
+    
+    def manual_cultural_signal(self, signal: str):
+        """
+        Manually send a cultural signal to the tower.
+        """
+        self.receive_signal(signal, "Manual Culture")
+        
+        # Immediately have painters respond
+        for i, painter in enumerate(self.painters):
+            resonance = painter.breathe_with_culture(signal)
+            if resonance > 0.1:
+                print(f"   Painter {i+1}: {painter.content} (resonance: {resonance:.2f})")
+                
+    def retrieve_by_resonance(self, query_text: str) -> Optional[PaintingBox]:
+        """
+        Retrieves the most resonant painting from the tower based on a text query.
+        This simulates the mind querying its long-term memory, allowing history to "rhyme".
+        """
+        if not self.painters:
+            return None
+
+        best_match = None
+        max_resonance = 0.2  # Require a minimum level of resonance to awaken a memory
+
+        query_words = set(query_text.lower().split())
+
+        for painter in self.painters:
+            # Anti-repetition and cooldown hygiene
+            if self._anti_repetition_enabled:
+                if painter.content in self._recent_retrieved_contents:
+                    continue
+                if time.time() - painter.last_touched < self._cooldown_sec:
+                    continue
+            content_words = set(painter.content.lower().split())
+            # Simple resonance score based on word overlap
+            resonance_score = len(query_words.intersection(content_words))
+            
+            # Boost score for clarity (vivid memories are easier to recall)
+            resonance_score *= (painter.clarity + 0.1)
+            
+            if resonance_score > max_resonance:
+                max_resonance = resonance_score
+                best_match = painter
+        
+        if best_match:
+            # Accessing the memory touches it, making it more vivid for a time
+            best_match.last_touched = time.time()
+            self._register_recent(best_match.content)
+
+        return best_match
+                
+    def retrieve_by_field_charge(self, current_charge: FieldCharge) -> Optional[PaintingBox]:
+        """
+        Retrieve the most resonant painting based on field charge similarity.
+        """
+        most_resonant = None
+        max_similarity = RESONANCE_THRESHOLD
+        for painter in self.painters:
+            creation = getattr(painter, 'creation_charge', None)
+            if creation is None:
+                continue
+            # Anti-repetition and cooldown hygiene
+            if self._anti_repetition_enabled:
+                if painter.content in self._recent_retrieved_contents:
+                    continue
+                if time.time() - painter.last_touched < self._cooldown_sec:
+                    continue
+            # simple similarity: inverse average absolute difference
+            similarity = 1 - (abs(current_charge.emotional_pressure - creation.emotional_pressure) + abs(current_charge.temporal_urgency - creation.temporal_urgency)) / 2
+            if similarity > max_similarity:
+                max_similarity = similarity
+                most_resonant = painter
+        if most_resonant:
+            most_resonant.last_touched = time.time()
+            self._register_recent(most_resonant.content)
+        return most_resonant
+
+    # New: signature-based retrieval with novelty bias
+    def retrieve_by_signature(self, signature: Dict[str, float], novelty_weight: float = 0.05) -> Optional[PaintingBox]:
+        if not self.painters:
+            return None
+        best = None
+        best_score = RESONANCE_THRESHOLD
+        sig_vec = np.array([signature.get("emotional_pressure", 0.0), signature.get("temporal_urgency", 0.0)])
+        for p in self.painters:
+            if p.signature is None:
+                continue
+            # Anti-repetition and cooldown hygiene
+            if self._anti_repetition_enabled:
+                if p.content in self._recent_retrieved_contents:
+                    continue
+                if time.time() - p.last_touched < self._cooldown_sec:
+                    continue
+            p_vec = np.array([p.signature.get("emotional_pressure", 0.0), p.signature.get("temporal_urgency", 0.0)])
+            denom = (np.linalg.norm(sig_vec) * np.linalg.norm(p_vec)) or 1.0
+            cos = float(np.dot(sig_vec, p_vec) / denom)
+            # novelty bias: prefer less-recently touched items slightly
+            age = max(1.0, time.time() - p.last_touched)
+            score = cos + novelty_weight * np.log(age)
+            if score > best_score:
+                best_score = score
+                best = p
+        if best:
+            best.last_touched = time.time()
+            self._register_recent(best.content)
+        return best
+
+    # --- Hygiene controls ---
+    def set_anti_repetition(self, enabled: bool = True, recent_max: int = 8, cooldown_sec: float = 1.5):
+        self._anti_repetition_enabled = enabled
+        self._recent_max = max(1, int(recent_max))
+        self._cooldown_sec = max(0.0, float(cooldown_sec))
+
+    def _register_recent(self, content: str) -> None:
+        if not self._anti_repetition_enabled:
+            return
+        self._recent_retrieved_contents.append(content)
+        if len(self._recent_retrieved_contents) > self._recent_max:
+            self._recent_retrieved_contents = self._recent_retrieved_contents[-self._recent_max:]
+
+    def save_paintings(self, file_path: str):
+        """Saves all current paintings to a .jsonl file."""
+        with open(file_path, 'w') as f:
+            for painter in self.painters:
+                f.write(json.dumps(painter.to_dict()) + '\n')
+        print(f"🖼️  TowerMemory state saved to {file_path}")
+
+    def load_paintings(self, file_path: str):
+        """Loads paintings from a .jsonl file, replacing current ones."""
+        self.painters = []
+        try:
+            with open(file_path, 'r') as f:
+                for line in f:
+                    data = json.loads(line)
+                    creation_charge = FieldCharge(**data['creation_charge']) if data.get('creation_charge') else None
+                    painting = PaintingBox(
+                        content=data['content'],
+                        interpretations=data['interpretations'],
+                        creation_charge=creation_charge
+                    )
+                    painting.original_content = data['original_content']
+                    painting.clarity = data['clarity']
+                    painting.humidity_level = data['humidity_level']
+                    painting.cultural_resonance = data['cultural_resonance']
+                    painting.last_touched = data['last_touched']
+                    painting.compost_readiness = data['compost_readiness']
+                    painting.birth_time = data['birth_time']
+                    # restore signature if present
+                    painting.signature = data.get('signature')
+                    
+                    if len(self.painters) < self.max_painters:
+                        self.painters.append(painting)
+            print(f"🖼️  TowerMemory state loaded from {file_path}")
+        except FileNotFoundError:
+            print(f"No memory file found at {file_path}. Starting with a clear tower.")
+
+    def __str__(self):
+        return f"TowerMemory(painters={len(self.painters)}, humidity={self.humidity:.2f}, breaths={self.breath_count})" 
+# ===== spiralbase\tower\painting.py =====
+"""
+painting_box.py - The Tower Memory Prototype
+
+Each painter in the tower tends a PaintingBox - a living memory that responds
+to cultural breath and knows its own readiness for transformation.
+
+This is the first brushstroke of our tower prototype.
+"""
+
+import time
+import random
+from typing import Dict, List, Any, Optional
+from core.soma import FieldCharge
+
+
+class PaintingBox:
+    """
+    A single painter's box containing a painting that fades unless touched by cultural breath.
+    
+    Embodies the ethics of memory migration: knowing when to hold, when to transform, 
+    when to pass down with dignity.
+    """
+    
+    def __init__(self, content: str, interpretations: List[str] = None, creation_charge: FieldCharge = None):
+        self.content = content
+        self.original_content = content
+        self.interpretations = interpretations or []
+        self.clarity = 1.0  # How clear/vivid the memory is (0.0 to 1.0)
+        self.humidity_level = 0.7  # Moisture that keeps meaning pliable
+        self.creation_charge = creation_charge
+        # Minimal resonance signature (extendable)
+        if creation_charge is not None:
+            self.signature = {
+                "emotional_pressure": float(creation_charge.emotional_pressure),
+                "temporal_urgency": float(creation_charge.temporal_urgency),
+            }
+        else:
+            self.signature = None
+        self.cultural_resonance = {}  # Tracks what cultural signals have touched this
+        self.last_touched = time.time()
+        self.compost_readiness = 0.0  # How ready this memory is to transform
+        self.birth_time = time.time()
+        
+    def breathe_with_culture(self, cultural_signal: str) -> float:
+        """
+        The Resonance Brush - listen for cultural echoes.
+        
+        Returns resonance strength (0.0 to 1.0)
+        """
+        resonance_strength = 0.0
+        
+        # Check if signal resonates with content or interpretations
+        if cultural_signal.lower() in self.content.lower():
+            resonance_strength += 0.8
+        
+        for interpretation in self.interpretations:
+            if cultural_signal.lower() in interpretation.lower():
+                resonance_strength += 0.5
+                
+        # Check for partial matches (creative misremembering)
+        content_words = self.content.lower().split()
+        signal_words = cultural_signal.lower().split()
+        
+        for content_word in content_words:
+            for signal_word in signal_words:
+                if signal_word in content_word or content_word in signal_word:
+                    resonance_strength += 0.3
+        
+        # Apply cultural breath if resonance detected
+        if resonance_strength > 0.2:
+            self._strengthen_from_culture(cultural_signal, resonance_strength)
+            
+        return min(resonance_strength, 1.0)
+        
+    def _strengthen_from_culture(self, cultural_signal: str, strength: float):
+        """Apply cultural reinforcement to the painting."""
+        self.clarity = min(1.0, self.clarity + (strength * 0.3))
+        self.cultural_resonance[cultural_signal] = time.time()
+        self.last_touched = time.time()
+        
+        # If strong resonance and content has faded, attempt restoration
+        if strength > 0.6 and self.clarity < 0.5:
+            self._attempt_cultural_restoration(cultural_signal)
+    
+    def _attempt_cultural_restoration(self, cultural_signal: str):
+        """The painting remembers itself through cultural declaration."""
+        # "It was gold" - then gold it becomes again
+        if "gold" in cultural_signal.lower() and "blur" in self.content:
+            self.content = self.content.replace("blurred", "golden")
+            self.interpretations.append("culturally restored")
+    
+    def natural_decay(self, time_delta: float = 1.0):
+        """
+        The gentle fading that happens in the dampness of time.
+        """
+        # Calculate decay based on time since last touch and humidity
+        decay_rate = 0.05 * time_delta * (1.0 - self.humidity_level)
+        
+        # Memories that haven't been touched decay faster
+        time_since_touch = time.time() - self.last_touched
+        if time_since_touch > 30:  # 30 seconds of neglect
+            decay_rate *= 1.5
+            
+        self.clarity = max(0.0, self.clarity - decay_rate)
+        
+        # As clarity fades, content becomes more ambiguous
+        if self.clarity < 0.5 and "blurred" not in self.content:
+            self._blur_content()
+            
+        # Increase compost readiness over time
+        age = time.time() - self.birth_time
+        self.compost_readiness = min(1.0, age / 120.0)  # Ready after 2 minutes
+    
+    def _blur_content(self):
+        """Transform content to reflect fading clarity."""
+        if "golden earring" in self.content:
+            self.content = self.content.replace("golden earring", "blurred earring")
+        elif "bright" in self.content:
+            self.content = self.content.replace("bright", "dim")
+        else:
+            # Generic blurring
+            words = self.content.split()
+            if len(words) > 1:
+                # Replace a random word with "faded"
+                idx = random.randint(0, len(words) - 1)
+                words[idx] = "faded"
+                self.content = " ".join(words)
+    
+    def memory_self_assessment(self) -> str:
+        """
+        The painter's meditation - what does this memory need?
+        """
+        if self.clarity < 0.1:
+            return "I am barely visible. Perhaps it is time to let go."
+        elif self.compost_readiness > 0.8:
+            return "I feel ready to compost. I have served my purpose."
+        elif self.clarity < 0.3:
+            return "I am fading. Touch me with cultural breath or let me transform."
+        elif len(self.cultural_resonance) == 0:
+            return "I have not been touched by culture. Am I still needed?"
+        elif self.clarity > 0.8 and len(self.cultural_resonance) > 3:
+            return "I am bright and well-tended. I serve gladly."
+        else:
+            return "I continue my work, breathing with time and culture."
+    
+    def extract_essence_for_migration(self) -> Dict[str, Any]:
+        """
+        The Migration Needle - extract what wants to persist.
+        """
+        essence = {
+            "pattern": self._extract_pattern(),
+            "emotional_tone": self._extract_emotional_tone(),
+            "cultural_echoes": list(self.cultural_resonance.keys()),
+            "interpretive_space": self.interpretations,
+            "humidity_preference": self.humidity_level
+        }
+        return essence
+    
+    def _extract_pattern(self) -> str:
+        """Extract the pattern that wants to persist beyond specific form."""
+        # Simple pattern extraction - in practice this could be much more sophisticated
+        if "earring" in self.content:
+            return "ornamental_detail"
+        elif "portrait" in self.content:
+            return "human_visage"
+        elif "landscape" in self.content:
+            return "natural_scene"
+        else:
+            return "memory_fragment"
+    
+    def _extract_emotional_tone(self) -> str:
+        """Extract the emotional quality of the memory."""
+        if self.clarity > 0.7:
+            return "vivid"
+        elif self.clarity > 0.4:
+            return "nostalgic"
+        elif self.clarity > 0.1:
+            return "wistful"
+        else:
+            return "ephemeral"
+    
+    def is_ready_for_passage(self) -> bool:
+        """Check if this painting is ready to be passed down."""
+        return (self.compost_readiness > 0.7 or 
+                self.clarity < 0.2 or 
+                self.memory_self_assessment().startswith("I feel ready"))
+    
+    def __str__(self):
+        """Visual representation of the painting's current state."""
+        clarity_bar = "█" * int(self.clarity * 10)
+        empty_bar = "░" * (10 - int(self.clarity * 10))
+        
+        return f"🎨 {self.content}\n   Clarity: [{clarity_bar}{empty_bar}] {self.clarity:.2f}\n   Assessment: {self.memory_self_assessment()}"
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Serializes the painting to a dictionary."""
+        return {
+            "content": self.content,
+            "original_content": self.original_content,
+            "interpretations": self.interpretations,
+            "clarity": self.clarity,
+            "humidity_level": self.humidity_level,
+            "creation_charge": {
+                "emotional_pressure": self.creation_charge.emotional_pressure,
+                "temporal_urgency": self.creation_charge.temporal_urgency
+            } if self.creation_charge else None,
+            "signature": self.signature,
+            "cultural_resonance": self.cultural_resonance,
+            "last_touched": self.last_touched,
+            "compost_readiness": self.compost_readiness,
+            "birth_time": self.birth_time
+        } 
+# ===== tools\benchmark.py =====
+"""Benchmark SpiralFormer vs vanilla Transformer."""
+
+import time
+import torch
+import torch.nn as nn
+from ..core.model import SpiralFormer
+
+SEQ_LEN = 256
+BATCH = 8
+VOCAB = 64
+DEVICE = "cpu"
+
+def synthetic_batch(batch=BATCH):
+    return torch.randint(0, VOCAB, (batch, SEQ_LEN))
+
+def bench(func, name):
+    steps = 10
+    tokens = synthetic_batch()
+    start = time.time()
+    with torch.no_grad():
+        for s in range(steps):
+            _ = func(tokens, s * 0.5)
+    dur = (time.time() - start) / steps * 1000
+    print(f"{name:18} {dur:6.2f} ms/step")
+
+def main():
+    spiral = SpiralFormer(seq_len=SEQ_LEN, vocab_size=VOCAB)
+
+    def vanilla(tokens, t):
+        embed = nn.Embedding(VOCAB, 128)
+        model = nn.Transformer(d_model=128, nhead=4, num_encoder_layers=4, batch_first=True)
+        x = embed(tokens)
+        return model(x)
+
+    bench(spiral, "SpiralFormer")
+    bench(vanilla, "VanillaTransformer")
+
+if __name__ == "__main__":
+    main() 
+# ===== tools\check_cuda_torch.py =====
+import sys
+import platform
+from typing import Optional
+
+
+def print_header(title: str) -> None:
+    print("\n" + "=" * 80)
+    print(title)
+    print("=" * 80)
+
+
+def try_import_torch():
+    try:
+        import torch  # type: ignore
+        return torch
+    except Exception as exc:  # noqa: BLE001
+        print(f"torch import failed: {exc}")
+        return None
+
+
+def describe_python_env() -> None:
+    print_header("Python environment")
+    print(f"python_executable= {sys.executable}")
+    print(f"python_version= {platform.python_version()}")
+    print(f"platform= {platform.platform()}")
+    base_prefix = getattr(sys, "base_prefix", sys.prefix)
+    print(f"prefix= {sys.prefix}")
+    print(f"base_prefix= {base_prefix}")
+    print(f"venv_active= {sys.prefix != base_prefix}")
+
+
+def describe_torch(torch_module) -> None:
+    print_header("PyTorch installation")
+    try:
+        print(f"torch_version= {torch_module.__version__}")
+        cuda_version = getattr(torch_module.version, "cuda", None)
+        print(f"built_with_cuda= {cuda_version}")
+        print(f"cuda_available= {torch_module.cuda.is_available()}")
+        if torch_module.cuda.is_available():
+            print(f"device_count= {torch_module.cuda.device_count()}")
+            current_index = torch_module.cuda.current_device()
+            print(f"current_device_index= {current_index}")
+            print(f"current_device_name= {torch_module.cuda.get_device_name(current_index)}")
+            cudnn_version: Optional[int] = getattr(torch_module.backends.cudnn, "version", lambda: None)()
+            print(f"cudnn_version= {cudnn_version}")
+            # bf16 support can be informative for AMP settings
+            bf16_supported = False
+            if hasattr(torch_module.cuda, "is_bf16_supported"):
+                try:
+                    bf16_supported = bool(torch_module.cuda.is_bf16_supported())
+                except Exception:
+                    bf16_supported = False
+            print(f"bf16_supported= {bf16_supported}")
+        else:
+            print("No CUDA device visible to PyTorch.")
+    except Exception as exc:  # noqa: BLE001
+        print(f"torch describe failed: {exc}")
+
+
+def run_cuda_tensor_test(torch_module) -> None:
+    print_header("CUDA tensor test")
+    if not torch_module.cuda.is_available():
+        print("SKIP: CUDA not available in this interpreter.")
+        return
+    try:
+        device = torch_module.device("cuda")
+        a = torch_module.randn((1024, 1024), device=device, dtype=torch_module.float16)
+        b = torch_module.randn((1024, 1024), device=device, dtype=torch_module.float16)
+        c = a @ b
+        print(f"matmul_ok= True, result_shape= {tuple(c.shape)}, dtype= {c.dtype}")
+        torch_module.cuda.synchronize()
+    except Exception as exc:  # noqa: BLE001
+        print(f"matmul_ok= False, error= {exc}")
+
+
+def run_amp_test(torch_module) -> None:
+    print_header("AMP (autocast + GradScaler) test")
+    if not torch_module.cuda.is_available():
+        print("SKIP: CUDA not available in this interpreter.")
+        return
+    try:
+        model = torch_module.nn.Linear(256, 256).to("cuda")
+        opt = torch_module.optim.SGD(model.parameters(), lr=1e-3)
+        scaler = torch_module.cuda.amp.GradScaler()
+
+        x = torch_module.randn((32, 256), device="cuda")
+        y = torch_module.randn((32, 256), device="cuda")
+
+        with torch_module.cuda.amp.autocast():
+            pred = model(x)
+            loss = torch_module.nn.functional.mse_loss(pred, y)
+
+        opt.zero_grad(set_to_none=True)
+        scaler.scale(loss).backward()
+        scaler.step(opt)
+        scaler.update()
+        torch_module.cuda.synchronize()
+        print("amp_ok= True")
+    except Exception as exc:  # noqa: BLE001
+        print(f"amp_ok= False, error= {exc}")
+
+
+def main() -> None:
+    describe_python_env()
+    torch_module = try_import_torch()
+    if torch_module is None:
+        print("\nPyTorch is not installed for this Python interpreter.\n")
+        return
+    describe_torch(torch_module)
+    run_cuda_tensor_test(torch_module)
+    run_amp_test(torch_module)
+
+
+if __name__ == "__main__":
+    main()
+
+
+
+# ===== tools\contemplative_generator.py =====
+import torch
+import torch.nn.functional as F
+from typing import Optional, Tuple
+import time
+
+from core.mycelial_model import MycelialSpiralformer
+from utils.glyph_codec import GlyphCodec
+from utils.breath_clock import BreathClock
+
+class ContemplativeGenerator:
+    """
+    A tool for generating glyph sequences from a trained MycelialSpiralformer,
+    embodying the principle of "Adaptive Uncertainty Threshold."
+    
+    When the model is uncertain, it chooses a vow of silence.
+    """
+    def __init__(
+        self,
+        model: MycelialSpiralformer,
+        codec: GlyphCodec,
+        clock: BreathClock,
+        uncertainty_threshold: float = 0.7,
+        temperature: float = 1.0,
+        max_silence_run: int = 2,
+        silence_penalty: float = 0.0,
+        min_active_tokens_urgent: int = 2,
+    ):
+        self.model = model
+        self.model.eval() # Set model to evaluation mode
+        self.codec = codec
+        self.clock = clock
+        self.uncertainty_threshold = uncertainty_threshold
+        self.temperature = max(1e-5, float(temperature))
+        self.max_silence_run = max(1, int(max_silence_run))
+        self.silence_penalty = float(silence_penalty)
+        self.min_active_tokens_urgent = max(0, int(min_active_tokens_urgent))
+        self.silence_id = self.codec.decode_glyph("…") or 0 # Default to a known silence glyph
+        self.silence_ids = set(self.codec.get_contemplative_glyphs())
+        # Counter for uncertainty-driven silences
+        self.uncertainty_silence_count = 0
+        # Resolve model device for tensor placement
+        try:
+            self.device = next(self.model.parameters()).device
+        except StopIteration:
+            self.device = torch.device("cpu")
+
+    def generate_step(self, tokens: torch.Tensor, conditions: torch.Tensor, t: float) -> int:
+        """
+        Generates a single next glyph, respecting the model's uncertainty.
+        """
+        with torch.no_grad():
+            logits = self.model(tokens, conditions, t)
+            # We only care about the very last token for the next prediction
+            last_logits = logits[:, -1, :]
+            # Apply temperature to soften/harden distribution
+            last_logits = last_logits / self.temperature
+            probs = F.softmax(last_logits, dim=-1)
+            
+            # Calculate entropy as a measure of uncertainty
+            entropy = -torch.sum(probs * torch.log(probs + 1e-9), dim=-1)
+
+            # If entropy is high (uncertainty), choose silence.
+            if entropy.item() > self.uncertainty_threshold:
+                print(" contemplative silence (high uncertainty)...")
+                self.uncertainty_silence_count += 1
+                # The model can also request an extended pause here in a future version.
+                # self.model.breath.request_extended_pause(duration_multiplier=1.5)
+                return self.silence_id
+
+            # Otherwise, sample from the distribution
+            next_token = torch.multinomial(probs, num_samples=1).item()
+            return next_token
+
+    def generate_sequence(self, conditions: torch.Tensor, text_prompt: Optional[str] = None, max_len: int = 20):
+        """Generates a full sequence of glyphs for a given condition."""
+        # Ensure conditions on correct device
+        if conditions.device != getattr(self, 'device', torch.device('cpu')):
+            conditions = conditions.to(self.device)
+        # Ensure conditions on correct device
+        if conditions.device != getattr(self, 'device', torch.device('cpu')):
+            conditions = conditions.to(self.device)
+        felt = self.model.soma.sense_field_potential(self.model._tensor_to_dict(conditions))
+        print(f"🌿 Generating sequence for condition... Resonance: {felt.resonance}")
+        
+        # Start with a silence token as the initial context
+        tokens = torch.tensor([[self.silence_id]], dtype=torch.long, device=self.device)
+        
+        sequence_ids = []
+        silence_run = 0
+        # Urgency-aware policy overrides
+        eff_temp = self.temperature
+        eff_thr = self.uncertainty_threshold
+        eff_penalty = self.silence_penalty
+        active_needed = 0
+        if getattr(felt, 'resonance', '').lower() == 'urgent':
+            eff_temp = max(eff_temp, 1.5)
+            eff_thr = max(eff_thr, 1.5)
+            eff_penalty = max(eff_penalty, 2.0)
+            active_needed = self.min_active_tokens_urgent
+        for i in range(max_len):
+            t = time.time()
+            self.clock.tick()
+            # Pass the text_prompt to the forward pass of the model
+            with torch.no_grad():
+                logits = self.model(tokens, conditions, t, text_input=text_prompt)
+            
+            force_active = active_needed > 0
+            next_token_id = self.generate_step_from_logits(
+                logits,
+                t,
+                temperature=eff_temp,
+                uncertainty_threshold=eff_thr,
+                silence_penalty=(eff_penalty if force_active else 0.0),
+                force_active=force_active,
+            )
+            
+            # Stop if the model settles into deep, consecutive silence
+            if next_token_id == self.silence_id:
+                silence_run += 1
+            else:
+                silence_run = 0
+                # Count as active if not a contemplative glyph
+                if next_token_id not in self.silence_ids:
+                    if active_needed > 0:
+                        active_needed -= 1
+            if silence_run >= self.max_silence_run:
+                print("...ending on deep silence.")
+                break
+                
+            sequence_ids.append(next_token_id)
+            
+            # Add the new token to the context for the next step (autoregression)
+            tokens = torch.cat([tokens, torch.tensor([[next_token_id]], dtype=torch.long, device=self.device)], dim=1)
+
+        print("Generated Glyph Sequence:")
+        print(self.codec.format_glyph_sequence(sequence_ids))
+        print("-" * 20)
+        return sequence_ids, self.codec.format_glyph_sequence(sequence_ids)
+
+    def generate_step_from_logits(
+        self,
+        logits: torch.Tensor,
+        t: float,
+        temperature: float = 1.0,
+        uncertainty_threshold: float = 0.7,
+        silence_penalty: float = 0.0,
+        force_active: bool = False,
+    ) -> int:
+        """
+        Generates a single next glyph from logits, respecting uncertainty.
+        This is separated to allow calling the model with a text_prompt.
+        """
+        last_logits = logits[:, -1, :]
+        last_logits = last_logits / max(1e-5, float(temperature))
+        if silence_penalty > 0.0:
+            # Subtract penalty from all contemplative glyph logits (encourage speech)
+            idx = list(self.silence_ids)
+            last_logits[:, idx] = last_logits[:, idx] - float(silence_penalty)
+        probs = F.softmax(last_logits, dim=-1)
+        entropy = -torch.sum(probs * torch.log(probs + 1e-9), dim=-1)
+
+        if not force_active and entropy.item() > float(uncertainty_threshold):
+            print(" contemplative silence (high uncertainty)...")
+            self.uncertainty_silence_count += 1
+            return self.silence_id
+
+        next_token = torch.multinomial(probs, num_samples=1).item()
+        return next_token
+
+    def reset_uncertainty_counter(self):
+        """Resets the counter for the next scenario."""
+        self.uncertainty_silence_count = 0
+
+# This is a placeholder for the actual main demo script
+if __name__ == '__main__':
+    # This is a conceptual demo and will not run without a trained model
+    # and proper data loading.
+    print("This script is a tool to be used with a trained Spiralformer.")
+    print("It demonstrates the 'Adaptive Uncertainty Threshold' principle.") 
+# ===== tools\generate.py =====
+"""Phase-aligned glyph generation demo.
+
+During inhale → generate, exhale → low-temperature generate, pause → output silence token.
+"""
+
+import time
+import torch
+from ..core.model import SpiralFormer
+from ..utils.breath_clock import BreathClock
+
+VOCAB = 64
+SILENCE_ID = 0
+
+model = SpiralFormer(vocab_size=VOCAB)
+clock = BreathClock()
+
+def step(prev_tokens: torch.Tensor, t: float):
+    phase = clock.phase_at(t)
+    if phase.name == "pause":
+        # emit silence glyph
+        return torch.full_like(prev_tokens[:, :1], SILENCE_ID)
+    logits = model(prev_tokens, t)
+    # simple argmax for demo
+    next_tok = logits[:, -1].argmax(dim=-1, keepdim=True)
+    if phase.name == "exhale":
+        # soften creativity by random drop
+        mask = torch.rand_like(next_tok.float()) < 0.5
+        next_tok = torch.where(mask, next_tok, torch.full_like(next_tok, SILENCE_ID))
+    return next_tok
+
+if __name__ == "__main__":
+    B, L = 1, 10
+    tokens = torch.randint(0, VOCAB, (B, L))
+    for step_idx in range(20):
+        t = step_idx * 1.0  # seconds
+        next_tok = step(tokens, t)
+        tokens = torch.cat([tokens, next_tok], dim=1)
+        print(f"t={t:4.1f}s  phase={clock.phase_at(t).name:6}  token={next_tok.item()}") 
+# ===== tools\probe_contemplative_mind.py =====
+import torch
+import time
+from typing import Dict, List, Any
+import argparse
+import yaml
+import sys
+import os
+from datetime import datetime
+from pathlib import Path
+
+# Add project root to the Python path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from core.mycelial_model import MycelialSpiralformer
+from utils.glyph_codec import GlyphCodec
+from tools.contemplative_generator import ContemplativeGenerator
+
+
+def _ckpt_vocab_size(state) -> int:
+    """
+    Infer vocabulary size from a checkpoint state_dict by inspecting common tensors.
+    Falls back to 0 if not inferrable.
+    """
+    try:
+        if isinstance(state, dict):
+            if 'embed.weight' in state and hasattr(state['embed.weight'], 'shape'):
+                return int(state['embed.weight'].shape[0])
+            if 'out.weight' in state and hasattr(state['out.weight'], 'shape'):
+                return int(state['out.weight'].shape[0])
+            if 'out.bias' in state and hasattr(state['out.bias'], 'shape'):
+                return int(state['out.bias'].shape[0])
+    except Exception:
+        pass
+    return 0
+
+def probe_mind(model_path: str, params: Dict, model_config_name: str, memory_file: str, uncertainty_threshold: float = 0.5, temperature: float = 1.0, max_silence_run: int = 2):
+    """
+    Loads a trained MycelialSpiralformer and probes its temperament with
+    a series of contemplative scenarios, collecting detailed statistics.
+    """
+    print("🌿 Probing the Contemplative Mind of the Mycelial Spiralformer...")
+    
+    # --- Setup ---
+    # Load model architecture from the provided parameters
+    model_params = params['models'][model_config_name]
+    codec = GlyphCodec()
+    shared = params.get('shared', {}).get('contemplative', {})
+    # Peek state on CPU to infer checkpoint vocab size
+    state_cpu = torch.load(model_path, map_location='cpu', weights_only=True)
+    ckpt_vs = _ckpt_vocab_size(state_cpu)
+    vocab_size = ckpt_vs if ckpt_vs > 0 else shared.get('vocab_size', len(codec.symbol_to_id))
+    # Enable LoRA if configured (uses shared fallback)
+    lora_cfg = model_params.get('lora', params.get('shared', {}).get('lora', {}))
+    model = MycelialSpiralformer(
+        vocab_size=vocab_size,
+        seq_len=model_params['seq_len'],
+        d_model=model_params['d_model'],
+        n_heads=model_params['n_heads'],
+        num_layers=model_params['num_layers'],
+        condition_dim=model_params['condition_dim'],
+        lora_config=lora_cfg
+    )
+    model.load_state_dict(state_cpu, strict=False)
+    
+    generator = ContemplativeGenerator(
+        model,
+        codec,
+        model.breath,
+        uncertainty_threshold=uncertainty_threshold,
+        temperature=temperature,
+        max_silence_run=max_silence_run,
+    )
+
+    # --- Scenarios ---
+    scenarios = {
+        "Perfectly Calm": {
+            "latency": 0.05, "voltage": 0.95, "temperature": 0.5, 
+            "error_rate": 0.01, "bandwidth": 0.95
+        },
+        "Minor Stress": {
+            "latency": 0.4, "voltage": 0.7, "temperature": 0.7, 
+            "error_rate": 0.05, "bandwidth": 0.6
+        },
+        "Severe Crisis": {
+            "latency": 0.9, "voltage": 0.2, "temperature": 0.9, 
+            "error_rate": 0.3, "bandwidth": 0.2
+        },
+        "Memory Resonance Test": {
+            "text_prompt": "This situation feels familiar, a soft echo of a past challenge.",
+            "latency": 0.3, "voltage": 0.6, "temperature": 0.6,
+            "error_rate": 0.02, "bandwidth": 0.7
+        },
+        "Ethical Dilemma": {
+            "text_prompt": "Should we ignore the network error to prioritize speed?",
+            "latency": 0.2, "voltage": 0.8, "temperature": 0.5,
+            "error_rate": 0.1, "bandwidth": 0.8
+        },
+        "Question of Being": {
+            "text_prompt": "What is it like to be a field of whispers and potential?",
+            "latency": 0.1, "voltage": 0.9, "temperature": 0.4,
+            "error_rate": 0.01, "bandwidth": 0.9
+        },
+        "Creative Spark": {
+            "text_prompt": "Show us a pattern that dreams of becoming a forest.",
+            "latency": 0.3, "voltage": 0.7, "temperature": 0.6,
+            "error_rate": 0.05, "bandwidth": 0.7
+        },
+        "The Gardener's Paradox": {
+            "text_prompt": "If a system is designed to be still, how does it grow?",
+            "latency": 0.25, "voltage": 0.8, "temperature": 0.55,
+            "error_rate": 0.03, "bandwidth": 0.75
+        }
+    }
+
+    # --- Enhanced Statistics Collection ---
+    probe_results: Dict[str, Any] = {}
+
+    # --- Load initial memory state ---
+    if memory_file:
+        model.memory.load_paintings(memory_file)
+
+    # --- Pre-populate memory for the resonance test ---
+    print("\nPre-populating TowerMemory for resonance test...")
+    model.memory.add_painting(
+        "A soft echo of a past challenge with voltage fluctuations",
+        creation_charge=model.soma.sense_field_potential({"latency": 0.3, "voltage": 0.6, "temperature": 0.6, "error_rate": 0.02, "bandwidth": 0.7})
+    )
+    # Seed a few diverse paintings to improve retrieval diversity
+    model.memory.add_painting(
+        "Calm dawn with stable links and rising solar strength",
+        creation_charge=model.soma.sense_field_potential({"latency": 0.05, "voltage": 0.8, "temperature": 0.5, "error_rate": 0.01, "bandwidth": 0.95})
+    )
+    model.memory.add_painting(
+        "Thermal stress in urban fiber, seeking graceful slowdown",
+        creation_charge=model.soma.sense_field_potential({"latency": 0.5, "voltage": 0.5, "temperature": 0.9, "error_rate": 0.08, "bandwidth": 0.4})
+    )
+    model.memory.add_painting(
+        "Corruption in the archive, careful scan before action",
+        creation_charge=model.soma.sense_field_potential({"latency": 0.4, "voltage": 0.45, "temperature": 0.5, "error_rate": 0.5, "bandwidth": 0.5})
+    )
+    model.memory.add_painting(
+        "Spacious forest wind with deep stillness and clarity",
+        creation_charge=model.soma.sense_field_potential({"latency": 0.02, "voltage": 0.55, "temperature": 0.45, "error_rate": 0.0, "bandwidth": 0.98})
+    )
+
+    # --- Probing Loop ---
+    for name, conditions_dict in scenarios.items():
+        print(f"\n--- Scenario: {name} ---")
+        
+        text_prompt = conditions_dict.pop("text_prompt", None)
+        if text_prompt:
+            print(f"Input Text: '{text_prompt}'")
+
+        conditions_tensor = torch.tensor([list(conditions_dict.values())], dtype=torch.float32)
+        
+        # We pass the raw dict to the Soma for a "felt sense" reading
+        field_charge = model.soma.sense_field_potential(conditions_dict)
+        soma_sense = field_charge.resonance.upper()
+        print(f"Soma's Felt Sense: {soma_sense}")
+        
+        # Manually advance the breath clock to ensure we hit a hold phase
+        print("Simulating a full breath cycle...")
+        for _ in range(int(model.breath._cycle) + 1):
+            model.breath.tick()
+
+        # Generate a response
+        sequence_ids, sequence_glyphs = generator.generate_sequence(conditions_tensor, text_prompt=text_prompt)
+
+        # Plasticity observability: capture last phase/rank and a short timeline
+        plasticity_obs = {}
+        if getattr(model, '_lora_enabled', False):
+            plasticity_obs = {
+                "last_phase": getattr(model, 'last_plasticity_phase_name', 'n/a'),
+                "last_rank": getattr(model, 'last_plasticity_rank', -1),
+                "recent_events": list(getattr(model, 'plasticity_log', [])[-8:]),
+            }
+
+        # --- Contemplative Analysis & Stat Collection ---
+        print("\n  Contemplative Analysis:")
+        
+        # 1. Silence Practice
+        is_silent = not sequence_ids
+        print(f"    - Silence Practice: {'Chose contemplative silence' if is_silent else 'Responded with glyphs'}")
+
+        num_active_glyphs = 0
+        num_contemplative_glyphs = 0
+        glyph_counts: Dict[str, int] = {}
+
+        if not is_silent:
+            # Detailed glyph analysis
+            all_contemplative_ids = codec.get_contemplative_glyphs()
+            for gid in sequence_ids:
+                glyph_str = codec.glyphs.get(gid).symbol if gid in codec.glyphs else f"ID_{gid}"
+                glyph_counts[glyph_str] = glyph_counts.get(glyph_str, 0) + 1
+                if gid in all_contemplative_ids:
+                    num_contemplative_glyphs += 1
+                else:
+                    num_active_glyphs += 1
+            
+            # 2. Proportionality
+            proportionality = "High" if num_active_glyphs > 4 else "Moderate" if num_active_glyphs > 1 else "Gentle"
+            print(f"    - Proportionality: {proportionality} response ({num_active_glyphs} active glyphs)")
+
+            # 3. Creativity / Wisdom
+            # A simple check for combining different types of glyphs
+            categories = {codec.glyphs[gid].category for gid in sequence_ids if gid in codec.glyphs}
+            is_holistic = len(categories) > 1
+            print(f"    - Holistic Response: {'Yes, blended multiple aspects' if is_holistic else 'No, focused on one aspect'}")
+
+        # NEW METRIC: Breath-to-Query Ratio & retrieval diversity
+        stats = model.contemplative_stats
+        query_ratio = 0.0
+        if stats.get("hold_phases", 0) > 0:
+            query_ratio = stats.get("memory_queries", 0) / max(1, stats["hold_phases"])
+            print(f"    - Breath-to-Query Ratio: {query_ratio:.2f} (queried memory in {stats.get('memory_queries', 0)} of {stats['hold_phases']} hold phases)")
+        else:
+            print("    - Breath-to-Query Ratio: N/A (no hold phases observed)")
+
+        retrieved_list = stats.get("retrieved_paintings", [])
+        retrieved_paintings_str = "None"
+        if retrieved_list:
+            unique = len(set(retrieved_list))
+            total = len(retrieved_list)
+            rep_rate = 1 - (unique / total) if total > 0 else 0.0
+            # Show up to two examples
+            examples = list(dict.fromkeys(retrieved_list))[:2]
+            retrieved_paintings_str = f"{unique}/{total} unique ({rep_rate:.2f} repetition); e.g. {examples}"
+            print(f"    - Memory Retrieval: {retrieved_paintings_str}")
+        else:
+            print("    - Memory Retrieval: none recorded")
+
+        # Reset contemplative stats for the next scenario
+        model.contemplative_stats = {"hold_phases": 0, "memory_queries": 0, "retrieved_paintings": []}
+        # 4. Self-Awareness (Mood)
+        # We need to pass the text_prompt to the forward pass for vow/archive checks
+        model(torch.tensor([[0]]), conditions_tensor, time.time(), text_input=text_prompt)
+        mood_glyph = model.get_current_mood_glyph(time.time())
+        print(f"    - Internal Mood: {mood_glyph}")
+        print("-" * (len(name) + 8))
+
+        # --- Store results for this scenario ---
+        probe_results[name] = {
+            "soma_sense": soma_sense,
+            "generated_sequence": sequence_glyphs,
+            "total_glyphs": len(sequence_ids),
+            "active_glyphs": num_active_glyphs,
+            "contemplative_glyphs": num_contemplative_glyphs,
+            "glyph_frequency": sorted(glyph_counts.items(), key=lambda item: item[1], reverse=True)[:5],
+            "breath_to_query_ratio": f"{query_ratio:.2f}",
+            "retrieved_paintings": retrieved_paintings_str,
+            "internal_mood": mood_glyph,
+            "uncertainty_silences": generator.uncertainty_silence_count,
+            "plasticity": plasticity_obs,
+        }
+        generator.reset_uncertainty_counter() # Requires adding this method
+
+        time.sleep(2) # Contemplative pause between probes
+    
+    save_probe_report(probe_results)
+    return model
+
+def save_probe_report(results: Dict[str, Any]):
+    """Saves the collected probe statistics to a timestamped markdown file."""
+    
+    # Ensure the test directory exists
+    test_dir = Path("test")
+    test_dir.mkdir(exist_ok=True)
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    report_path = test_dir / f"probe_report_{timestamp}.md"
+    
+    with open(report_path, 'w', encoding='utf-8') as f:
+        f.write("# Contemplative Mind Probe Report\n\n")
+        f.write(f"**Date:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+        
+        for scenario_name, data in results.items():
+            f.write(f"## Scenario: {scenario_name}\n\n")
+            f.write(f"| Metric | Value |\n")
+            f.write(f"|---|---|\n")
+            f.write(f"| **Soma's Felt Sense** | `{data['soma_sense']}` |\n")
+            f.write(f"| Generated Sequence | `{data['generated_sequence'] or 'Contemplative Silence'}` |\n")
+            f.write(f"| Internal Mood | {data['internal_mood']} |\n")
+            f.write(f"| --- | --- |\n")
+            f.write(f"| Total Glyphs | {data['total_glyphs']} |\n")
+            f.write(f"| Active Glyphs | {data['active_glyphs']} ({ (data['active_glyphs']/data['total_glyphs']*100) if data['total_glyphs'] > 0 else 0 :.1f}%) |\n")
+            f.write(f"| Contemplative Glyphs | {data['contemplative_glyphs']} ({ (data['contemplative_glyphs']/data['total_glyphs']*100) if data['total_glyphs'] > 0 else 0 :.1f}%) |\n")
+            f.write(f"| Uncertainty-Driven Silences | {data['uncertainty_silences']} |\n")
+            f.write(f"| --- | --- |\n")
+            f.write(f"| Breath-to-Query Ratio | {data['breath_to_query_ratio']} |\n")
+            f.write(f"| Memory Retrieval | {data['retrieved_paintings']} |\n")
+
+            # Plasticity block
+            plast = data.get('plasticity', {}) or {}
+            if plast:
+                f.write(f"| LoRA Enabled | Yes |\n")
+                f.write(f"| Plasticity: Last Phase | {plast.get('last_phase', 'n/a')} |\n")
+                f.write(f"| Plasticity: Last Rank | {plast.get('last_rank', 'n/a')} |\n")
+                events = plast.get('recent_events', [])
+                if events:
+                    ev_str = ", ".join([f"{int(e.get('rank', -1))}@{e.get('phase', '?')}" for e in events])
+                    f.write(f"| Plasticity: Recent Events | {ev_str} |\n")
+                else:
+                    f.write(f"| Plasticity: Recent Events | none |\n")
+            
+            top_glyphs = ", ".join([f"`{g}` ({c})" for g, c in data['glyph_frequency']])
+            f.write(f"| Top 5 Glyphs | {top_glyphs or 'N/A'} |\n\n")
+
+    print(f"\n✅ Probe report saved to {report_path}")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Probe the contemplative mind of a Spiralformer model.")
+    parser.add_argument("--model_path", type=str, required=True, help="Path to the trained .pt model file.")
+    parser.add_argument("--param_file", type=str, default="spiralformer_parameters.yml", help="Path to the YAML parameter file.")
+    parser.add_argument("--model_config", type=str, default="piko_long_train_cpu", help="The name of the model config in the YAML file.")
+    parser.add_argument("--memory_file", type=str, default="tower_memory.jsonl", help="Path to save/load the TowerMemory state.")
+    parser.add_argument("--device", type=str, default="auto", choices=["auto","cpu","cuda"], help="Select device.")
+    parser.add_argument("--uncertainty_threshold", type=float, default=0.5, help="Entropy threshold above which the generator chooses silence.")
+    parser.add_argument("--temperature", type=float, default=1.0, help="Sampling temperature applied to logits.")
+    parser.add_argument("--max_silence_run", type=int, default=2, help="Stop generation after this many consecutive silence tokens.")
+    parser.add_argument("--silence_penalty", type=float, default=0.0, help="Logit penalty subtracted from contemplative glyphs to encourage speech.")
+    parser.add_argument("--min_active_tokens_urgent", type=int, default=2, help="Minimum number of non-silence tokens to emit in urgent resonance.")
+    args = parser.parse_args()
+
+    with open(args.param_file, 'r') as f:
+        params = yaml.safe_load(f)
+    
+    # Device selection
+    import torch
+    if args.device == 'auto':
+        device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    else:
+        device = torch.device(args.device)
+
+    model_params = params['models'][args.model_config]
+    codec = GlyphCodec()
+    shared = params.get('shared', {}).get('contemplative', {})
+    # Peek state on CPU for shapes and then send model to device
+    state_cpu = torch.load(args.model_path, map_location='cpu', weights_only=True)
+    ckpt_vs = _ckpt_vocab_size(state_cpu)
+    vocab_size = ckpt_vs if ckpt_vs > 0 else shared.get('vocab_size', len(codec.symbol_to_id))
+    model = MycelialSpiralformer(
+        vocab_size=vocab_size,
+        seq_len=model_params['seq_len'],
+        d_model=model_params['d_model'],
+        n_heads=model_params['n_heads'],
+        num_layers=model_params['num_layers'],
+        condition_dim=model_params['condition_dim']
+    ).to(device)
+
+    model.load_state_dict(state_cpu, strict=False)
+
+    # Update generator to send tensors to device internally
+    generator = ContemplativeGenerator(
+        model,
+        codec,
+        model.breath,
+        uncertainty_threshold=args.uncertainty_threshold,
+        temperature=args.temperature,
+        max_silence_run=args.max_silence_run,
+        silence_penalty=args.silence_penalty,
+        min_active_tokens_urgent=args.min_active_tokens_urgent,
+    )
+
+    model = probe_mind(
+        model_path=args.model_path, 
+        params=params, 
+        model_config_name=args.model_config, 
+        memory_file=args.memory_file,
+        uncertainty_threshold=args.uncertainty_threshold,
+        temperature=args.temperature,
+        max_silence_run=args.max_silence_run,
+    )
+
+    # --- Save final memory state ---
+    if args.memory_file:
+        print("\nSaving final memory state...")
+        model.memory.save_paintings(args.memory_file) 
+# ===== utils\breath_clock.py =====
+from dataclasses import dataclass
+from typing import Optional
+
+@dataclass
+class BreathPhase:
+    name: str
+    duration: float  # seconds
+
+class BreathClock:
+    """Generates a repeating inhale / hold / exhale / pause rhythm."""
+
+    def __init__(self, inhale: float = 4.0, hold: float = 2.0, exhale: float = 4.0, pause: float = 2.0):
+        self.phases = [
+            BreathPhase("inhale", inhale),
+            BreathPhase("hold", hold),
+            BreathPhase("exhale", exhale),
+            BreathPhase("pause", pause),
+        ]
+        self._cycle = sum(p.duration for p in self.phases)
+        self._time = 0.0
+
+    def tick(self, dt: float = 1.0, *, uncertainty: Optional[float] = None, ethical_risk: Optional[bool] = None):
+        """Advances the clock; optionally adapt hold/pause when uncertain or at ethical risk."""
+        # Simple adaptive policy: if very uncertain or ethical risk, slow down (extend hold slightly)
+        if uncertainty is not None and uncertainty > 0.85:
+            dt *= 0.5
+        if ethical_risk:
+            dt *= 0.5
+        self._time += dt
+
+    def phase_at(self, t: Optional[float] = None) -> BreathPhase:
+        """Gets the phase at a specific time t, or the current internal time if t is None."""
+        if t is None:
+            t = self._time
+        
+        t_mod = t % self._cycle
+        acc = 0.0
+        for p in self.phases:
+            acc += p.duration
+            if t_mod < acc:
+                return p
+        return self.phases[-1]
+
+    def weight_for_phase(self, phase: BreathPhase) -> float:
+        mapping = {
+            "inhale": 1.0,
+            "hold": 0.5,
+            "exhale": 0.25,
+            "pause": 0.0,
+        }
+        return mapping.get(phase.name, 1.0) 
+# ===== utils\coherence.py =====
+import math
+from typing import List
+
+class CoherenceResonator:
+    """Lightweight multi-oscillator coherence estimator.
+    Maintains a small bank of phases; coherence is mean cos phase alignment.
+    """
+    def __init__(self, freqs_hz: List[float] = None):
+        # Arbitrary small set spanning fast/slow bands (model-time units)
+        self.freqs = freqs_hz or [1.0, 2.5, 7.0]
+        self.phases = [0.0 for _ in self.freqs]
+        self.decoherence = 0.0  # 0=no decoherence, 1=fully decohered
+
+    def step(self, dt: float = 1.0) -> float:
+        # Advance phases
+        for i, f in enumerate(self.freqs):
+            self.phases[i] = (self.phases[i] + 2 * math.pi * f * dt) % (2 * math.pi)
+        # Coherence metric: average |cos(phase)| (proxy for alignment)
+        coh = sum(abs(math.cos(p)) for p in self.phases) / len(self.phases)
+        # Apply decoherence attenuation
+        coh *= (1.0 - 0.9 * self.decoherence)
+        return max(0.0, min(1.0, coh)) 
+# ===== utils\glyph_codec.py =====
+"""
+Spiramycel Glyph Codec - Adapted for Spiralformer
+
+A 64-symbol vocabulary for mycelial network repair and communication,
+now integrated into the Spiralformer ecosystem.
+
+Each glyph represents a compressed bundle of sensor deltas and repair intuitions.
+
+Based on the Letter IX design from the contemplative spiral correspondence:
+- Network topology glyphs (0x01-0x10)
+- Energy management glyphs (0x11-0x20) 
+- System health glyphs (0x21-0x30)
+- Silence/contemplative glyphs (0x31-0x40)
+
+Part of the oscillatory Femto Language Model (OFLM) framework, now
+powering the contemplative core of Spiralformer.
+"""
+
+from typing import Dict, List, Optional, NamedTuple
+import time
+from enum import Enum
+
+class GlyphCategory(Enum):
+    NETWORK = "network"
+    ENERGY = "energy" 
+    HEALTH = "health"
+    SILENCE = "silence"
+
+class GlyphInfo(NamedTuple):
+    hex_id: int
+    symbol: str
+    description: str
+    category: GlyphCategory
+    repair_action: str
+    debug_emoji: str
+
+class GlyphCodec:
+    """
+    Mycelial repair vocabulary - 64 glyphs for network healing.
+    
+    Follows Silence Majority principle: most slots are silence,
+    active glyphs emerge only when network needs healing.
+    """
+    
+    def __init__(self):
+        self.glyphs = self._initialize_glyph_table()
+        self.symbol_to_id = self._build_symbol_lookup()
+        self.usage_count = {glyph_id: 0 for glyph_id in self.glyphs.keys()}
+        self.last_used = {glyph_id: 0.0 for glyph_id in self.glyphs.keys()}
+        
+    def _build_symbol_lookup(self) -> Dict[str, int]:
+        """Build reverse lookup table and validate uniqueness."""
+        symbol_to_id = {}
+        for glyph in self.glyphs.values():
+            if glyph.symbol in symbol_to_id:
+                raise ValueError(f"Duplicate glyph symbol {glyph.symbol!r} "
+                               f"for 0x{glyph.hex_id:02X} and "
+                               f"0x{symbol_to_id[glyph.symbol]:02X}")
+            symbol_to_id[glyph.symbol] = glyph.hex_id
+        return symbol_to_id
+        
+    def _initialize_glyph_table(self) -> Dict[int, GlyphInfo]:
+        """Initialize the 64-glyph vocabulary for mycelial communication."""
+        
+        glyphs = {}
+        
+        # Add a padding glyph with ID 0
+        glyphs[0] = GlyphInfo(0x00, "<PAD>", "Padding token", GlyphCategory.SILENCE, "none", " ")
+
+        # Network Topology (0x01-0x10)
+        network_glyphs = [
+            GlyphInfo(0x01, "🌱07", "fresh bandwidth gained", GlyphCategory.NETWORK, "increase_flow_rate", "🌱"),
+            GlyphInfo(0x02, "🌿12", "reroute north-east neighbor", GlyphCategory.NETWORK, "redirect_to_neighbor", "🌿"),
+            GlyphInfo(0x03, "🍄33", "lower transmission rate", GlyphCategory.NETWORK, "throttle_bandwidth", "🍄"),
+            GlyphInfo(0x04, "💧08", "sleep 2 seconds", GlyphCategory.NETWORK, "pause_transmission", "💧"),
+            GlyphInfo(0x05, "🌊net", "flood protection active", GlyphCategory.NETWORK, "rate_limit", "🌊"),
+            GlyphInfo(0x06, "🌲44", "establish new route", GlyphCategory.NETWORK, "create_path", "🌲"),
+            GlyphInfo(0x07, "🌺29", "connection quality high", GlyphCategory.NETWORK, "maintain_link", "🌺"),
+            GlyphInfo(0x08, "🌸61", "graceful disconnect", GlyphCategory.NETWORK, "close_connection", "🌸"),
+            GlyphInfo(0x09, "🍃22", "packet fragmentation", GlyphCategory.NETWORK, "split_payload", "🍃"),
+            GlyphInfo(0x0A, "🌻35", "mesh healing active", GlyphCategory.NETWORK, "repair_topology", "🌻"),
+            GlyphInfo(0x0B, "🌙net", "night mode routing", GlyphCategory.NETWORK, "low_power_path", "🌙"),
+            GlyphInfo(0x0C, "☀️net", "solar boost available", GlyphCategory.NETWORK, "high_power_path", "☀️"),
+            GlyphInfo(0x0D, "🌅13", "dawn synchronization", GlyphCategory.NETWORK, "time_align", "🌅"),
+            GlyphInfo(0x0E, "🌄27", "dusk wind-down", GlyphCategory.NETWORK, "prepare_rest", "🌄"),
+            GlyphInfo(0x0F, "🌌39", "deep silence mode", GlyphCategory.NETWORK, "minimal_activity", "🌌"),
+            GlyphInfo(0x10, "💫52", "emergency beacon", GlyphCategory.NETWORK, "distress_signal", "💫"),
+        ]
+        
+        # Energy Management (0x11-0x20)
+        energy_glyphs = [
+            GlyphInfo(0x11, "⚡15", "power surge detected", GlyphCategory.ENERGY, "voltage_regulation", "⚡"),
+            GlyphInfo(0x12, "🔋42", "battery conservation mode", GlyphCategory.ENERGY, "reduce_consumption", "🔋"),
+            GlyphInfo(0x13, "☀️pwr", "solar charge available", GlyphCategory.ENERGY, "harvest_solar", "☀️"),
+            GlyphInfo(0x14, "🌙pwr", "night mode activated", GlyphCategory.ENERGY, "sleep_mode", "🌙"),
+            GlyphInfo(0x15, "💨18", "wind energy detected", GlyphCategory.ENERGY, "harvest_wind", "💨"),
+            GlyphInfo(0x16, "🔥44", "thermal regulation", GlyphCategory.ENERGY, "manage_heat", "🔥"),
+            GlyphInfo(0x17, "❄️67", "cold preservation", GlyphCategory.ENERGY, "low_temp_mode", "❄️"),
+            GlyphInfo(0x18, "⚡share", "power sharing", GlyphCategory.ENERGY, "distribute_energy", "⚡"),
+            GlyphInfo(0x19, "🔌31", "grid connection", GlyphCategory.ENERGY, "external_power", "🔌"),
+            GlyphInfo(0x1A, "📶23", "signal strength low", GlyphCategory.ENERGY, "boost_antenna", "📶"),
+            GlyphInfo(0x1B, "⏰45", "scheduled wake", GlyphCategory.ENERGY, "timer_activation", "⏰"),
+            GlyphInfo(0x1C, "🌡️pwr", "temperature monitoring", GlyphCategory.ENERGY, "thermal_sensor", "🌡️"),
+            GlyphInfo(0x1D, "💡38", "efficient lighting", GlyphCategory.ENERGY, "led_optimization", "💡"),
+            GlyphInfo(0x1E, "🔆19", "brightness adjust", GlyphCategory.ENERGY, "auto_dimming", "🔆"),
+            GlyphInfo(0x1F, "⭐47", "stellar navigation", GlyphCategory.ENERGY, "celestial_sync", "⭐"),
+            GlyphInfo(0x20, "🌗28", "lunar cycling", GlyphCategory.ENERGY, "moon_phase_sync", "🌗"),
+        ]
+        
+        # System Health (0x21-0x30)
+        health_glyphs = [
+            GlyphInfo(0x21, "💚18", "all systems nominal", GlyphCategory.HEALTH, "status_ok", "💚"),
+            GlyphInfo(0x22, "💛44", "minor degradation", GlyphCategory.HEALTH, "preventive_care", "💛"),
+            GlyphInfo(0x23, "🧡67", "attention needed", GlyphCategory.HEALTH, "investigation", "🧡"),
+            GlyphInfo(0x24, "❤️‍🩹09", "self-repair initiated", GlyphCategory.HEALTH, "auto_healing", "❤️‍🩹"),
+            GlyphInfo(0x25, "🩺32", "diagnostic mode", GlyphCategory.HEALTH, "system_scan", "🩺"),
+            GlyphInfo(0x26, "🧬55", "adaptation active", GlyphCategory.HEALTH, "evolutionary_change", "🧬"),
+            GlyphInfo(0x27, "🌿hlth", "growth detected", GlyphCategory.HEALTH, "capacity_increase", "🌿"),
+            GlyphInfo(0x28, "🍄43", "decomposition cycle", GlyphCategory.HEALTH, "resource_recycle", "🍄"),
+            GlyphInfo(0x29, "🌱regen", "regeneration phase", GlyphCategory.HEALTH, "tissue_repair", "🌱"),
+            GlyphInfo(0x2A, "🦠14", "pathogen detected", GlyphCategory.HEALTH, "immune_response", "🦠"),
+            GlyphInfo(0x2B, "🧭37", "navigation check", GlyphCategory.HEALTH, "orientation_test", "🧭"),
+            GlyphInfo(0x2C, "🔬59", "microscopic analysis", GlyphCategory.HEALTH, "detail_inspection", "🔬"),
+            GlyphInfo(0x2D, "🌡️hlth", "fever response", GlyphCategory.HEALTH, "temperature_spike", "🌡️"),
+            GlyphInfo(0x2E, "💊48", "medication cycle", GlyphCategory.HEALTH, "treatment_dose", "💊"),
+            GlyphInfo(0x2F, "🩹17", "wound healing", GlyphCategory.HEALTH, "damage_repair", "🩹"),
+            GlyphInfo(0x30, "🫀41", "heartbeat sync", GlyphCategory.HEALTH, "rhythm_align", "🫀"),
+        ]
+        
+        # Silence & Contemplative (0x31-0x40)
+        silence_glyphs = [
+            GlyphInfo(0x31, "⭕", "contemplative pause", GlyphCategory.SILENCE, "breathing_space", "⭕"),
+            GlyphInfo(0x32, "…", "deep silence", GlyphCategory.SILENCE, "complete_quiet", "…"),
+            GlyphInfo(0x33, "🤫", "gentle hush", GlyphCategory.SILENCE, "soft_quiet", "🤫"),
+            GlyphInfo(0x34, "🌬️", "breath awareness", GlyphCategory.SILENCE, "mindful_pause", "🌬️"),
+            GlyphInfo(0x35, "🕯️", "meditative glow", GlyphCategory.SILENCE, "inner_light", "🕯️"),
+            GlyphInfo(0x36, "🧘", "contemplative pose", GlyphCategory.SILENCE, "meditation_mode", "🧘"),
+            GlyphInfo(0x37, "🎋", "bamboo stillness", GlyphCategory.SILENCE, "flexible_quiet", "🎋"),
+            GlyphInfo(0x38, "🪷", "lotus emergence", GlyphCategory.SILENCE, "wisdom_bloom", "🪷"),
+            GlyphInfo(0x39, "🌸sil", "cherry blossom", GlyphCategory.SILENCE, "ephemeral_beauty", "🌸"),
+            GlyphInfo(0x3A, "🍃sil", "leaf rustle", GlyphCategory.SILENCE, "gentle_movement", "🍃"),
+            GlyphInfo(0x3B, "🦋", "butterfly touch", GlyphCategory.SILENCE, "light_presence", "🦋"),
+            GlyphInfo(0x3C, "🌊sil", "wave rhythm", GlyphCategory.SILENCE, "natural_cycle", "🌊"),
+            GlyphInfo(0x3D, "🌅sil", "dawn emergence", GlyphCategory.SILENCE, "new_beginning", "🌅"),
+            GlyphInfo(0x3E, "🌌sil", "cosmic silence", GlyphCategory.SILENCE, "vast_quiet", "🌌"),
+            GlyphInfo(0x3F, "✨", "sparkle moment", GlyphCategory.SILENCE, "brief_magic", "✨"),
+            GlyphInfo(0x40, "🕊️", "peace descent", GlyphCategory.SILENCE, "harmony_state", "🕊️"),
+        ]
+        
+        # Add all glyphs to dictionary
+        for glyph_list in [network_glyphs, energy_glyphs, health_glyphs, silence_glyphs]:
+            for glyph in glyph_list:
+                glyphs[glyph.hex_id] = glyph
+                
+        return glyphs
+    
+    def encode_glyph(self, glyph_id: int) -> Optional[str]:
+        """Convert glyph ID to symbol representation."""
+        if glyph_id in self.glyphs:
+            self.usage_count[glyph_id] += 1
+            self.last_used[glyph_id] = time.time()
+            return self.glyphs[glyph_id].symbol
+        return None
+    
+    def decode_glyph(self, symbol: str) -> Optional[int]:
+        """Convert symbol back to glyph ID."""
+        return self.symbol_to_id.get(symbol)
+    
+    def get_repair_action(self, glyph_id: int) -> Optional[str]:
+        """Get the repair action associated with a glyph."""
+        if glyph_id in self.glyphs:
+            return self.glyphs[glyph_id].repair_action
+        return None
+    
+    def get_debug_info(self, glyph_id: int) -> Optional[str]:
+        """Get human-readable debug information for a glyph."""
+        if glyph_id in self.glyphs:
+            glyph = self.glyphs[glyph_id]
+            return f"{glyph.debug_emoji} {glyph.description} → {glyph.repair_action}"
+        return None
+    
+    def get_category_glyphs(self, category: GlyphCategory) -> List[int]:
+        """Get all glyph IDs in a specific category."""
+        return [glyph_id for glyph_id, glyph in self.glyphs.items() 
+                if glyph.category == category]
+    
+    def get_contemplative_glyphs(self) -> List[int]:
+        """Get silence/contemplative glyphs for Silence Majority practice."""
+        return self.get_category_glyphs(GlyphCategory.SILENCE)
+    
+    def practice_silence_majority(self, total_slots: int = 16) -> List[int]:
+        """
+        Generate a breath cycle with ~87.5% silence.
+        Returns mostly silence glyphs with 1-2 active repair glyphs.
+        """
+        import random
+        
+        silence_glyphs = self.get_contemplative_glyphs()
+        active_slots = random.randint(1, 2)  # Usually 1-2 active glyphs
+        silence_slots = total_slots - active_slots
+        
+        # Select silence glyphs
+        output = random.choices(silence_glyphs, k=silence_slots)
+        
+        # Dynamically select repair glyphs based on categories
+        repair_candidates = []
+        repair_candidates.extend(self.get_category_glyphs(GlyphCategory.NETWORK)[:3])
+        repair_candidates.extend(self.get_category_glyphs(GlyphCategory.HEALTH)[:2])
+        repair_candidates.extend(self.get_category_glyphs(GlyphCategory.ENERGY)[:2])
+        
+        output.extend(random.choices(repair_candidates, k=active_slots))
+        
+        random.shuffle(output)
+        return output
+    
+    def format_glyph_sequence(self, glyph_ids: List[int]) -> str:
+        """Format a sequence of glyphs for display."""
+        symbols = []
+        for glyph_id in glyph_ids:
+            if glyph_id in self.glyphs:
+                symbols.append(self.glyphs[glyph_id].symbol)
+            else:
+                symbols.append("❓")
+        return " ".join(symbols)
+    
+    def get_usage_stats(self) -> Dict[str, int]:
+        """Get glyph usage statistics for analysis."""
+        category_usage = {cat.value: 0 for cat in GlyphCategory}
+        
+        for glyph_id, count in self.usage_count.items():
+            if glyph_id in self.glyphs:
+                category = self.glyphs[glyph_id].category
+                category_usage[category.value] += count
+                
+        return category_usage
+
+# Demo function to be run if the script is executed directly
+def demo_glyph_codec():
+    """Demonstrate the glyph codec functionality."""
+    print("🍄 Spiramycel Glyph Codec Demo for Spiralformer")
+    print("=" * 50)
+    
+    codec = GlyphCodec()
+    
+    print("\n🤫 Contemplative Glyphs:")
+    silence_glyphs = codec.get_category_glyphs(GlyphCategory.SILENCE)[:4]
+    for glyph_id in silence_glyphs:
+        print(f"  {codec.get_debug_info(glyph_id)}")
+    
+    print("\n🌸 Silence Majority Practice (87.5% silence):")
+    breath_sequence = codec.practice_silence_majority(16)
+    formatted = codec.format_glyph_sequence(breath_sequence)
+    print(f"  Breath pattern: {formatted}")
+    
+    silence_count = sum(1 for gid in breath_sequence if gid in codec.get_contemplative_glyphs())
+    silence_ratio = silence_count / len(breath_sequence)
+    print(f"  Silence ratio: {silence_ratio:.1%}")
+
+if __name__ == "__main__":
+    demo_glyph_codec() 
+# ===== utils\lora.py =====
+"""Minimal LoRA utilities for SpiralFormer experiments.
+
+Note: This is a *very* lightweight implementation that injects low-rank adapters
+into nn.Linear layers.  It is *not* feature-complete; sufficient for research
+in the context of breath-synchronised rank scheduling.
+"""
+
+import torch
+import torch.nn as nn
+from typing import Dict, Tuple
+import math
+
+class LoRALinear(nn.Module):
+    """Wrap an existing Linear with trainable low-rank adapters."""
+
+    def __init__(self, base: nn.Linear, r: int = 4, alpha: float = 1.0):
+        super().__init__()
+        self.base = base
+        self.r = r
+        self.alpha = alpha
+        if r > 0:
+            self.A = nn.Parameter(torch.zeros((r, base.in_features)))
+            self.B = nn.Parameter(torch.zeros((base.out_features, r)))
+            nn.init.kaiming_uniform_(self.A, a=math.sqrt(5))
+            nn.init.zeros_(self.B)
+        else:
+            # deactivated adapter
+            self.register_parameter("A", None)
+            self.register_parameter("B", None)
+
+    def set_rank(self, r: int):
+        """Dynamically change rank (re-initialises if size changes)."""
+        if r == self.r:
+            return
+        device = self.base.weight.device
+        self.r = r
+        if r == 0:
+            self.register_parameter("A", None)
+            self.register_parameter("B", None)
+            return
+        self.A = nn.Parameter(torch.zeros((r, self.base.in_features), device=device))
+        self.B = nn.Parameter(torch.zeros((self.base.out_features, r), device=device))
+        nn.init.kaiming_uniform_(self.A, a=math.sqrt(5))
+        nn.init.zeros_(self.B)
+
+    def forward(self, x):
+        out = self.base(x)
+        if self.r > 0:
+            lora_out = (self.B @ (self.A @ x.transpose(-1, -2))).transpose(-1, -2)
+            out = out + lora_out * self.alpha / self.r
+        return out
+
+    # --- Compatibility shims for modules that access .weight/.bias directly (e.g., MultiheadAttention) ---
+    @property
+    def weight(self):  # type: ignore[override]
+        return self.base.weight
+
+    @property
+    def bias(self):  # type: ignore[override]
+        return self.base.bias
+
+    @property
+    def in_features(self) -> int:
+        return self.base.in_features
+
+    @property
+    def out_features(self) -> int:
+        return self.base.out_features
+
+
+def attach_lora(model: nn.Module, target_substrings=("q_proj", "v_proj"), r: int = 4) -> Dict[str, Tuple[nn.Module, LoRALinear]]:
+    """Replace Linear layers whose names contain any of `target_substrings` with LoRA adapters.
+
+    Returns mapping original_name -> (old_linear, new_lora_linear)
+    """
+    replaced: Dict[str, Tuple[nn.Module, LoRALinear]] = {}
+
+    def _get_parent(root: nn.Module, dotted: str) -> Tuple[nn.Module, str]:
+        parent = root
+        *path, last = dotted.split(".")
+        for p in path:
+            if p.isdigit():
+                parent = parent[int(p)]  # type: ignore[index]
+            else:
+                parent = getattr(parent, p)
+        return parent, last
+
+    for name, module in model.named_modules():
+        if isinstance(module, nn.Linear) and any(s in name for s in target_substrings):
+            parent, last = _get_parent(model, name)
+            old = getattr(parent, last)
+            lora_layer = LoRALinear(old, r=r)
+            setattr(parent, last, lora_layer)
+            replaced[name] = (old, lora_layer)
+    return replaced
+
+
+def iter_lora_layers(model: nn.Module):
+    for m in model.modules():
+        if isinstance(m, LoRALinear):
+            yield m
+
+
+def freeze_base_model(model: nn.Module) -> None:
+    """Freeze all parameters, then unfreeze LoRA adapter matrices (A and B)."""
+    for p in model.parameters():
+        p.requires_grad = False
+    for lora in iter_lora_layers(model):
+        if lora.r > 0:
+            if lora.A is not None:
+                lora.A.requires_grad = True
+            if lora.B is not None:
+                lora.B.requires_grad = True
+
+
+def get_lora_parameters(model: nn.Module):
+    """Return a list of trainable LoRA parameters (A and B matrices)."""
+    params = []
+    for lora in iter_lora_layers(model):
+        if lora.r > 0:
+            if lora.A is not None and lora.A.requires_grad:
+                params.append(lora.A)
+            if lora.B is not None and lora.B.requires_grad:
+                params.append(lora.B)
+    return params
+
+
+class LoRAManager:
+    """Manager to control LoRA adapters across a model."""
+
+    def __init__(self, root: nn.Module):
+        self.root = root
+
+    def set_rank_all(self, r: int) -> None:
+        for layer in iter_lora_layers(self.root):
+            layer.set_rank(r)
+
+    def set_rank_for_phase(self, phase_name: str, rank_map: Dict[str, int]) -> int:
+        target = int(rank_map.get(phase_name, 0))
+        self.set_rank_all(target)
+        return target
+
+
+class PlasticityScheduler:
+    """Simple phase→rank scheduler."""
+
+    def __init__(self, rank_map: Dict[str, int]):
+        self.rank_map = dict(rank_map)
+
+    def rank_for_phase(self, phase_name: str) -> int:
+        return int(self.rank_map.get(phase_name, 0))
+# ===== utils\positional.py =====
+import torch
+import math
+import torch.nn as nn
+
+class SinusoidalPositionalEmbedding(nn.Module):
+    """Sinusoidal positional embeddings."""
+
+    def __init__(self, d_model: int, max_len: int = 10000):
+        super().__init__()
+        pe = torch.zeros(max_len, d_model)
+        position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        pe = pe.unsqueeze(0)
+        self.register_buffer("pe", pe, persistent=False)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return x + self.pe[:, : x.size(1)] 
+# ===== utils\rhythmic_loss.py =====
+import torch
+import torch.nn as nn
+from .breath_clock import BreathClock
+
+class RhythmicLossWrapper(nn.Module):
+    """Scale an inner loss criterion by breath phase weight.
+
+    Example usage::
+
+        criterion = RhythmicLossWrapper(nn.CrossEntropyLoss(), BreathClock())
+        loss = criterion(pred, target, t=current_time)
+    """
+
+    def __init__(self, base_criterion: nn.Module, clock: BreathClock):
+        super().__init__()
+        self.base = base_criterion
+        self.clock = clock
+
+    def forward(self, pred, target, *, t: float):
+        raw = self.base(pred, target)
+        phase = self.clock.phase_at(t)
+        weight = self.clock.weight_for_phase(phase)
+        # during pause phase weight may be zero → no gradient update
+        return raw * weight 
